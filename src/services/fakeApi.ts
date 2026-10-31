@@ -56,17 +56,18 @@ export class FakeApi {
   }
 
   private async simulate() {
-    const { minDelayMs, maxDelayMs, offline, failureRate } = this.config;
+    const { minDelayMs, maxDelayMs, offline } = this.config;
     await this.wait(
       minDelayMs +
         Math.floor(this.random() * Math.max(0, maxDelayMs - minDelayMs + 1)),
     );
     if (offline)
       throw new ApiError("You are offline. Reconnect and retry this change.");
-    if (this.random() < failureRate)
-      throw new ApiError(
-        "The save could not be completed. Your latest server data has been restored.",
-      );
+  }
+
+  private simulateSaveFailure(message: string) {
+    if (this.random() < this.config.failureRate)
+      throw new ApiError(message);
   }
 
   async getOpportunities(): Promise<Opportunity[]> {
@@ -82,6 +83,9 @@ export class FakeApi {
 
   async updateOpportunity(request: UpdateRequest): Promise<Opportunity> {
     await this.simulate();
+    this.simulateSaveFailure(
+      "The save could not be completed. Your latest server data has been restored.",
+    );
     const current = this.server.get(request.id);
     if (!current) throw new ApiError("Opportunity no longer exists.");
     if (current.version !== request.expectedVersion) {
@@ -143,6 +147,7 @@ export class FakeApi {
     changes?: Partial<Pick<Opportunity, "stage" | "owner" | "dealValue">>,
   ) {
     await this.simulate();
+    this.simulateSaveFailure("The teammate update could not be completed.");
     const current = this.server.get(id);
     if (!current) throw new ApiError("Opportunity no longer exists.");
     const nextStage = changes?.stage ?? current.stage;
