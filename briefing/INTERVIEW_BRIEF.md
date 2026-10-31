@@ -1,4 +1,5 @@
 # FurniCraft Sales Pipeline
+
 ### HighLevel R1 engineering assignment · Interview brief
 
 ## What I built and why
@@ -31,9 +32,9 @@ flowchart LR
 
 ## Key UX decisions
 
-- **Table-first, with stage arrows and dropdown.** A table makes customer, product, value, owner, stage, and activity easy to compare and supports bulk selection. Kanban is more visual, but large columns are less effective for dense scanning. The stage strip gives a compact pipeline overview.
-- **One focused workspace.** Metrics, filters, table, and bulk actions stay together so reps keep their context. Separate pages could fit a larger CRM, but add navigation and state coordination for this assignment.
-- **Preserve review position.** After a successful save, the moved row gets a brief highlight and focus advances to the next opportunity in the old order. Teammate updates wait for explicit sync; **Go to active row** helps restore the user's place.
+- **Combine table scanning with Kanban-style stage navigation.** The table keeps customer, product, value, owner, stage, and activity together for comparison and bulk selection. Click a stage in the stage strip to filter the table to deals at that stage, similar to opening a Kanban column. Move an individual deal with the row's left/right arrows or keyboard shortcuts; use the dropdown for direct stage selection. This keeps Kanban's quick stage-focused browsing and movement while retaining the table's dense, sortable list.
+- **One focused workspace.** Metrics, filters, table, and bulk actions stay together so reps keep their context.
+- **Preserve review position.** After a successful save, the moved row gets a brief highlight and focus advances to the next opportunity in the old order. Teammates updates wait for explicit sync; **Go to active row** helps restore the user's place.
 - **Selection follows IDs.** It survives virtual rows mounting and unmounting. The header checkbox selects rendered rows; **Select all matching** snapshots the filtered IDs.
 
 ## Failed saves and teammate changes

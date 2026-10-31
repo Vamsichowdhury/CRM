@@ -11,70 +11,37 @@ This document explains the choices visible in the current FurniCraft Sales Pipel
 - **Alternatives:** A full Kanban board; a separate board and table mode; a paged table. A board can make stage movement intuitive but does not solve large-list scanning. Two modes add navigation and duplicate interaction rules. Pagination limits DOM work but interrupts continuous review and requires page-aware bulk selection.
 - **Trade-offs / production change:** The table is dense and less spatial than Kanban; one row has many controls. A production product should validate task workflows with sales users and may offer a saved Kanban view backed by server queries. Current implementation: `src/components/OpportunityTable.vue`, `OpportunityTableRow.vue`, `PipelineOverview.vue`, `utils/stageNavigation.ts`.
 
-### 2. One focused workspace
-
-- **Decision:** Keep the pipeline overview, filters, table, bulk controls, and simulation controls in one page.
-- **Problem / reason:** The demo's central task is review and update. Avoiding separate pages keeps context, active row, filters, selection, and sync state together.
-- **Alternatives:** Detail route per opportunity, separate reporting page, separate settings page. A production application may need these for complex workflows; they would be overkill for the current assignment and introduce route/state coordination.
-- **Trade-offs:** A very long page and a large amount of functionality in one view. The Vue component split improves readability but does not remove the single-page information density. `src/App.vue` composes the screen; `SimulationPanel.vue` lives below the table.
-
-### 3. Summary metrics and stage distribution
-
-- **Decision:** Show total opportunity count, total deal value, won/lost/attention metrics and stage counts/shares; when an owner is selected, offer an owner-only metric toggle.
-- **Reason / benefits:** A manager can understand pipeline distribution and find work needing attention without leaving the list. Stage cards also act as stage filters. Percentages make stage volume easier to compare.
-- **Alternatives:** A charting dashboard or no summary. A chart library and separate dashboard would add complexity beyond this workflow; counts are compact and directly linked to filtering.
-- **Trade-offs:** These are client-derived metrics, not authoritative financial reporting. The owner-only accessible label currently reports the global stage count while the visible count/share is owner-scoped; this is an accessibility correctness gap in `PipelineOverview.vue`. Metrics scan the in-memory records and should move to server aggregates at production scale.
-
-### 4. Search, filters, and sorting
-
-- **Decision:** Search company/product text; filter stage, searchable owner, INR value range, and inactivity; sort company, value, activity, or update date.
-- **Reason:** Sales reps need to find a particular customer/product and prioritize by value or recency. Owner search scales better than a plain select when names grow.
-- **Alternative:** Server query on every keystroke or a separate advanced-search page. Local filtering gives immediate interaction for the fixed demo dataset. The implementation does not debounce search; if data/network grows, debounce plus server-side filtering is appropriate.
-- **Trade-offs:** Each filter change can scan 50,000 records; sorting allocates a copy. Selection is a snapshot of IDs and is not silently recomputed when filters change. `src/utils/opportunityFilters.ts`, `OpportunityFilterToolbar.vue`, and store `visibleRecords` implement this.
-
-### 5. Explicit stage controls rather than drag-and-drop
+### 2. Explicit stage controls rather than drag-and-drop
 
 - **Decision:** Inline stage select plus previous/next arrows. Arrows follow a quick progression that omits terminal Won/Lost from the linear route; direct dropdown can choose any stage.
 - **Reason / benefits:** Controls are visible, keyboard operable, and precise in a dense table. The arrow flow avoids drag precision and makes the action explicit. After a save, focus moves to the next record in the review order captured before resorting; a briefly green border indicates the moved row.
 - **Alternatives:** Drag-and-drop, only a dropdown, or keyboard shortcuts only. Drag/drop is harder to use with a virtualized table and keyboard; dropdown-only costs more interaction; keyboard-only is undiscoverable.
 - **Trade-offs:** More controls in the row and arrows require users to learn their meaning. `stageNavigation.ts`, `OpportunityTableRow.vue`, and `OpportunityTable.vue` implement this. The default sort is updatedAt descending, so saved rows can move.
 
-### 6. Owner visibility and owner-only stats
-
-- **Decision:** Keep owner in every row, allow a searchable owner filter, and allow owner-scoped summary stats when a specific owner is selected.
-- **Reason:** Assignment/accountability is central to sales work; managers need a quick individual view.
-- **Trade-offs / gap:** The source data contains 7 owners, while the assignment scenario says 20. Filtering choices come from the generator's `OWNERS`; adding owners needs generator and tests updated. Owner-only stage accessible labels currently mismatch visible totals. Locations: `opportunityGenerator.ts`, `OpportunityFilterToolbar.vue`, `PipelineOverview.vue`.
-
-### 7. Visible synchronization state
+### 3. Visible synchronization state
 
 - **Decision:** Simulated teammate edits change fake server state and mark pending IDs; user explicitly clicks **Sync updates** to fetch the latest full snapshot. The active row remains highlighted and a **Go to active row** control restores its location.
 - **Reason:** This demonstrates collaboration without continuously changing row order while the user reviews a record. The user sees that remote data is waiting and chooses when to reconcile.
 - **Alternatives:** Polling, WebSockets, or refreshing after each teammate write. Those are suitable production transport choices, but cannot be meaningfully demonstrated across users in this single-browser fake API. A whole-snapshot sync is simple for the assignment but expensive.
 - **Trade-offs:** It is not real cross-device collaboration; sync reloads all 50,000 records. `syncActions.ts`, `OpportunityTable.vue`, and `OpportunityTableCaption.vue` implement the simulation.
 
-### 8. Simulation controls
-
-- **Decision:** Put adjustable failure rate, minimum delay, offline toggle, and same-deal teammate scenario in a simulation panel below the table.
-- **Reason:** Failure paths need to be reproducible and demonstrable without a real network or multiple accounts. Defaults model 300–1500 ms delay and 10% save failures.
-- **Trade-offs / limitation:** The UI allows failure up to 40%, but random behavior is not a deterministic scripted scenario. Teammate update capability is shown as enabled rather than controlled by a user toggle. `src/stores/simulation.ts`, `SimulationPanel.vue`, `fakeApi.ts`.
-
 ## Frontend architecture
 
-### 9. Vue 3 Composition API and TypeScript
+### 4. Vue 3 Composition API and TypeScript
 
 - **Decision:** Vue 3 Composition API with `<script setup>` and TypeScript.
 - **Why:** The project is component-oriented; Composition API makes related state/actions explicit and easy to extract. Types constrain stage values, update requests, and API result handling.
 - **Alternatives:** Options API or JavaScript. Options API remains viable but can spread related logic across component options. JavaScript is quicker initially but permits invalid stage strings and weakens refactor safety.
 - **Trade-offs:** TypeScript types do not validate data at runtime; types can become broad or stale. Use runtime schema validation at an external API boundary in production. `src/types/opportunity.ts` and Vue files are representative.
 
-### 10. Pinia, with separate stores by responsibility
+### 5. Pinia, with separate stores by responsibility
 
 - **Decision:** Pinia stores for opportunity state, row selection, and simulation settings. The opportunity store is a public facade composed from focused record, sync, and bulk action modules.
 - **Why:** State is shared by the overview, toolbar, bulk bar, rows, and simulation panel. Centralizing data and actions prevents separate components from writing inconsistent copies. Selection and simulation have distinct lifecycles and can change without rebuilding business records.
 - **Alternatives:** Component-local state or one giant store. Local state makes cross-component actions and consistent error handling difficult; a monolithic store was harder to read. Extracted modules keep the Pinia facade but reduce file size.
 - **Trade-offs:** More files and module context; several action modules receive a context object. `src/stores/opportunities.ts`, `opportunities/recordActions.ts`, `syncActions.ts`, `bulkActions.ts`, `selection.ts`, `simulation.ts`.
 
-### 11. Service boundary and data types
+### 6. Service boundary and data types
 
 - **Decision:** UI calls store actions; store actions call `fakeApi`; shared records and request shapes live in `src/types/opportunity.ts`.
 - **Why:** Components should express user intent, not network rules. A service boundary isolates simulated delay, failure, and version checks from rendering.
@@ -83,27 +50,14 @@ This document explains the choices visible in the current FurniCraft Sales Pipel
 
 ## Performance decisions
 
-### 12. TanStack Vue Virtual, not rendering all records
+### 7. TanStack Vue Virtual, not rendering all records
 
 - **Decision:** `useVirtualizer` renders the current viewport plus `overscan: 8`; estimated row size is 56 px.
 - **Reason:** 50,000 mounted rows would create huge DOM/layout/paint work. Virtualization mounts only a small window while keeping a scroll-sized surface.
 - **Alternatives:** Render all rows, pagination, or TanStack Table. Full rendering is excessive. Pagination reduces DOM but interrupts scanning and selection. TanStack Table is a headless table toolkit, not a replacement for row virtualization; current custom table needs only sorting/filtering logic already present.
 - **Trade-offs:** Off-screen rows are not mounted, so selection must be ID-based and focus/scroll must be managed. Row-height estimates and measurement need care. No benchmark is recorded. `OpportunityTable.vue`.
 
-### 13. Stable IDs, targeted updates, shallow records, and Set selection
-
-- **Decision:** Every record has a stable generated ID; table virtualizer keys by ID. The record array uses `shallowRef`, a `Map` supports lookup, single updates replace one entry and trigger the shallow ref, and bulk updates install records in a bounded pass. Selection is stored as IDs in Sets.
-- **Why:** Avoid deep reactive proxies for 50k rows, preserve identity across reorder, and make selected membership/inclusion checks efficient. Avoid changing unrelated row objects for a one-row edit.
-- **Alternatives:** Deep-reactive giant array, selected booleans embedded in each opportunity, or replacing the complete dataset after every write. Those approaches create broad reactive work and couple transient UI state to business records.
-- **Trade-offs:** Array `findIndex` on single install and full `map` on a batch are still O(n); maps/sets consume memory. The virtualizer does not mean filtering/sorting became sublinear. `opportunities.ts`, `selection.ts`, `OpportunityTable.vue`.
-
-### 14. Computed filtering/sorting and no debounce
-
-- **Decision:** A computed view applies utility filtering, then sorts a copy; filter controls update Pinia state directly.
-- **Why:** The UI always reflects the current filter and sorting remains separate from authoritative record order.
-- **Trade-offs / alternative:** Search is immediate, so each keystroke can scan 50,000 rows. Debouncing 150–300 ms can reduce repeated work but adds perceived delay and has not been implemented. A server query is the production solution at scale. Functions: `filterOpportunities`, `sortOpportunities`, `visibleRecords`.
-
-### 15. Bulk batches of 500, sequentially
+### 8. Bulk batches of 500, sequentially
 
 - **Decision:** The client sends one fake API call for each sequential batch of up to 500 IDs. The fake API returns per-record outcomes. Bulk array updates are installed once per response.
 - **Why:** Avoid an unbounded burst of 10,000 requests, keep progress/cancel boundaries, and preserve independent outcomes.
@@ -112,35 +66,35 @@ This document explains the choices visible in the current FurniCraft Sales Pipel
 
 ## Reliability decisions
 
-### 16. Optimistic stage updates with reconciliation
+### 9. Optimistic stage updates with reconciliation
 
 - **Decision:** Show the chosen stage immediately, mark saving, then install the authoritative server response. On failure, restore the latest readable server record; mark conflict separately from ordinary error.
 - **Why:** A 300–1500 ms simulated wait should not make a simple stage movement feel blocked.
 - **Alternatives:** Pessimistically wait before changing the row. Safer/simple but slower-feeling. Blind rollback to the old local value is also unsafe if a teammate changed the record in the meantime.
 - **Trade-offs:** Optimistic UI needs careful version checks, local revision tracking, and clear pending/error states. Retry and concurrency behavior are complex. `recordActions.changeStage` and `retry`.
 
-### 17. Local revisions/queues plus server versions
+### 10. Local revisions/queues plus server versions
 
 - **Decision:** Serialize same-record writes in one browser with a promise queue; increment a local revision and ignore stale responses; send `expectedVersion` to the API. The fake server rejects stale versions and returns its authoritative record.
 - **Why:** Local queue avoids requests racing for the same row; revision guards protect newer local intent; server versions prevent two clients from silently overwriting one another.
 - **Alternatives:** Last-write-wins or locks. Last-write-wins loses edits; distributed locks add availability, expiry, and ownership complexity for a simple field update. Version checks are lightweight optimistic concurrency control.
 - **Trade-offs:** A conflict requires review/retry and the version applies to the whole record, even when different fields might be edited independently. It is only simulated in one JavaScript process. `recordActions.ts`, `fakeApi.ts`.
 
-### 18. Partial bulk success and retry failed IDs
+### 11. Partial bulk success and retry failed IDs
 
 - **Decision:** Each row result is independent; successes remain saved; failed/conflicting IDs retain status and can be retried without resubmitting successful IDs.
 - **Why:** All-or-nothing semantics can be impractical for a large CRM action when some rows have stale versions or transient errors.
 - **Alternatives:** Abort/rollback whole bulk transaction or silently skip failures. A real database transaction can provide atomicity, but 10,000-record UI operations may not fit one transaction; silent skipping damages trust.
 - **Trade-offs:** The UI must explain partial outcomes and make retry/undo semantics precise. Current tests cover related retry paths but do not directly prove a mixed success/failure response within one batch.
 
-### 19. Cancellation and best-effort undo
+### 12. Cancellation and best-effort undo
 
 - **Decision:** Cancellation is observed between dispatched 500-row batches; the in-flight batch completes, then untouched optimistic rows reconcile from fake server state. Undo is a compensating version-checked write for successful rows.
 - **Why:** Aborting a request after a server may already have committed creates an unknown outcome. Finishing the current batch and reconciling makes outcomes clearer.
 - **Alternatives:** AbortController or rollback all local state immediately. Browser cancellation cannot guarantee server rollback; immediate rollback can lie about committed writes.
 - **Trade-offs / gap:** Cancel is not instantaneous and the UI must communicate reconciliation. Undo can partially fail; current `undoBulk` clears its snapshot even after failed results, so failed undo rows are not offered another undo retry. It is not atomic. `bulkActions.ts`.
 
-### 20. Separate client cache and authoritative fake server
+### 13. Separate client cache and authoritative fake server
 
 - **Decision:** Fake API owns a `Map` of cloned records; Pinia owns a distinct local cache. Teammate writes only the fake server until manual sync.
 - **Why:** Without separate state, simulated concurrency and stale-client conflicts cannot exist. Cloning prevents callers from mutating server objects by reference.
