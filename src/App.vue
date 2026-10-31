@@ -383,9 +383,9 @@ onUnmounted(() => {
             ><span
               ><strong>Keyboard shortcuts</strong
               ><small
-                ><kbd>/</kbd> Search &nbsp; <kbd>↑ ↓</kbd> Move between rows
-                &nbsp; <kbd>Space</kbd> Select focused row &nbsp;
-                <kbd>Esc</kbd> Clear selection</small
+                ><kbd>/</kbd> Search &nbsp; <kbd>↑ ↓</kbd> Move rows &nbsp;
+                <kbd>← →</kbd> Change stage &nbsp; <kbd>Space</kbd> Select row
+                &nbsp; <kbd>Esc</kbd> Clear selection</small
               ></span
             ><button
               class="help-link"

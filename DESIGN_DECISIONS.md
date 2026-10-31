@@ -12,6 +12,18 @@
 
 **Trade-off:** Rows are less visual than deal cards, and there is no drag-and-drop. Stage changes remain explicit in the row selector.
 
+## Quick stage movement
+
+**Chosen:** Keep the stage dropdown and add previous/next arrow buttons beside it.
+
+**Why:** The table stays compact and scannable, while the arrows reduce a common stage move to one click. Both controls use the same optimistic update path, so save status and conflict handling stay consistent.
+
+**Stage order:** Forward arrows follow New Lead → Contacted → Demo Done → Proposal Sent → Negotiation → Won. Lost is a terminal outcome rather than a step after Won, so it remains available in the dropdown. From Won or Lost, the previous arrow returns the deal to Negotiation; unavailable directions are disabled.
+
+**Trade-off:** The arrows represent one defined workflow. The dropdown remains available for Lost and for any non-adjacent correction.
+
+After a successful single-row update, the moved row is highlighted briefly and keyboard focus advances to the next opportunity from the pre-update order. For example, if row 5 moves to the top after a save, focus goes to the former row 6 rather than the new row 2. If that next opportunity is no longer visible, focus moves to the row at the updated opportunity's previous position. Failed saves keep focus in place so the user can inspect the error or retry.
+
 ## Optimistic versus pessimistic updates
 
 **Chosen:** Optimistic stage changes with visible saving/saved/error states.

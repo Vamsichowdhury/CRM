@@ -24,6 +24,8 @@ The fake API owns an authoritative server-side `Map` separate from client state.
 - Summary metrics and stage counts derived from the loaded records
 - Search by company or opportunity; filter by stage, owner, deal value, and 30-day inactivity
 - Sort by company, deal value, last activity, and updated time
+- Move deals one stage forward or back with inline arrows; keep the dropdown for direct stage selection
+- After a successful row update, briefly highlight its new position and advance focus to the next opportunity in the pre-update review order
 - TanStack virtualized rows with an overscan of eight rows
 - Select rendered rows, select all matching filtered results, exclude individual IDs, and clear selection
 - Optimistic stage changes with saving/saved/error/conflict states, retry, and stale-response protection
@@ -31,7 +33,7 @@ The fake API owns an authoritative server-side `Map` separate from client state.
 - Cancel bulk work between dispatched batches; in-flight records finish and undispatched rows are reconciled
 - Teammate update simulation and network simulation controls
 - Persistent light/dark theme toggle that follows system preference until the user chooses a theme
-- Keyboard help: `/` focuses search, Arrow Up/Down moves focused rows, Space toggles selection, Escape clears selection
+- Keyboard help: `/` focuses search, Arrow Up/Down moves rows, Left/Right changes the focused opportunity's stage, Space selects the row, and Escape clears selection
 
 ## Performance approach
 

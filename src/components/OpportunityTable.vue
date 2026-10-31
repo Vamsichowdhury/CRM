@@ -1,17 +1,24 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useVirtualizer } from "@tanstack/vue-virtual";
 import {
   DEAL_STAGES,
+  type DealStage,
   type Opportunity,
   type SortField,
 } from "../types/opportunity";
 import { useOpportunityStore } from "../stores/opportunities";
 import { useSelectionStore } from "../stores/selection";
+import { adjacentStage } from "../utils/stageNavigation";
+import { nextReviewOpportunityId } from "../utils/nextReviewOpportunity";
 
 const store = useOpportunityStore();
 const selection = useSelectionStore();
 const scrollElement = ref<HTMLElement | null>(null);
+const highlightedId = ref<string | null>(null);
+const focusAnnouncement = ref("");
+const updateNotice = ref("");
+let highlightTimer: number | undefined;
 const rows = computed(() => store.visibleRecords);
 const virtualizer = useVirtualizer(
   computed(() => ({
@@ -51,6 +58,17 @@ function toggleRendered() {
   selection.selectVisible(renderedIds.value, !allRenderedSelected.value);
 }
 function announceShortcut(event: KeyboardEvent, opportunity: Opportunity) {
+  const target = event.target;
+  const focusedStageArrow =
+    target instanceof Element && target.closest(".stage-step") !== null;
+  if (
+    (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
+    (target === event.currentTarget || focusedStageArrow)
+  ) {
+    event.preventDefault();
+    moveStage(opportunity, event.key === "ArrowLeft" ? "previous" : "next");
+    return;
+  }
   if (
     (event.key === "ArrowDown" || event.key === "ArrowUp") &&
     event.target === event.currentTarget
@@ -71,7 +89,7 @@ function announceShortcut(event: KeyboardEvent, opportunity: Opportunity) {
     );
     return;
   }
-  if (event.key === " " && !(event.target instanceof HTMLSelectElement)) {
+  if (event.key === " " && event.target === event.currentTarget) {
     event.preventDefault();
     selection.toggle(opportunity.id);
   }
@@ -85,8 +103,78 @@ function sortLabel(field: SortField, label: string) {
 function statusLabel(id: string) {
   return store.saveStates.get(id) ?? "saved";
 }
+function stageArrowLabel(
+  opportunity: Opportunity,
+  direction: "previous" | "next",
+) {
+  const target = adjacentStage(opportunity.stage, direction);
+  return target
+    ? `Move ${opportunity.companyName} to ${target}`
+    : `No ${direction} stage from ${opportunity.stage}`;
+}
+function moveStage(opportunity: Opportunity, direction: "previous" | "next") {
+  const target = adjacentStage(opportunity.stage, direction);
+  if (target) void applyStageChange(opportunity, target);
+}
+async function applyStageChange(opportunity: Opportunity, stage: DealStage) {
+  if (opportunity.stage === stage) return;
+  const previousVisibleIds = rows.value.map((row) => row.id);
+  const previousIndex = rows.value.findIndex(
+    (row) => row.id === opportunity.id,
+  );
+  await store.changeStage(opportunity.id, stage);
+  if (store.saveStates.get(opportunity.id) !== "saved") return;
+
+  const updatedIndex = rows.value.findIndex((row) => row.id === opportunity.id);
+  if (updatedIndex >= 0) {
+    highlightedId.value = opportunity.id;
+    updateNotice.value =
+      updatedIndex !== previousIndex
+        ? `${opportunity.companyName} moved to position ${updatedIndex + 1}`
+        : `${opportunity.companyName} updated`;
+    window.clearTimeout(highlightTimer);
+    highlightTimer = window.setTimeout(() => {
+      if (highlightedId.value === opportunity.id) {
+        highlightedId.value = null;
+        updateNotice.value = "";
+      }
+    }, 2600);
+  }
+
+  const nextReviewId = nextReviewOpportunityId(
+    previousVisibleIds,
+    opportunity.id,
+  );
+  const targetIsStillVisible = rows.value.some(
+    (row) => row.id === nextReviewId,
+  );
+  const fallbackIndex = Math.min(
+    Math.max(previousIndex, 0),
+    rows.value.length - 1,
+  );
+  const focusId = targetIsStillVisible
+    ? nextReviewId
+    : (rows.value[fallbackIndex]?.id ??
+      (updatedIndex >= 0 ? opportunity.id : null));
+  if (!focusId) return;
+  const focusIndex = rows.value.findIndex((row) => row.id === focusId);
+  const focusedOpportunity = rows.value[focusIndex];
+  if (!focusedOpportunity) return;
+
+  focusAnnouncement.value =
+    focusId === opportunity.id
+      ? `${opportunity.companyName} updated. No next opportunity is visible.`
+      : `${opportunity.companyName} updated. Focus moved to ${focusedOpportunity.companyName}.`;
+  virtualizer.value.scrollToIndex(focusIndex, { align: "auto" });
+  window.requestAnimationFrame(() =>
+    window.requestAnimationFrame(() =>
+      document.getElementById(`opportunity-row-${focusId}`)?.focus(),
+    ),
+  );
+}
 watch(rows, () => virtualizer.value.measure(), { flush: "post" });
 onMounted(() => virtualizer.value.measure());
+onUnmounted(() => window.clearTimeout(highlightTimer));
 </script>
 
 <template>
@@ -96,6 +184,9 @@ onMounted(() => virtualizer.value.measure());
         <h2>Opportunities</h2>
         <span>{{ rows.length.toLocaleString("en-IN") }} results</span>
       </div>
+      <span v-if="updateNotice" class="update-notice" role="status">{{
+        updateNotice
+      }}</span>
       <span class="range-label"
         >Showing {{ visibleStart }}–{{ visibleEnd }} of
         {{ rows.length.toLocaleString("en-IN") }}</span
@@ -159,6 +250,9 @@ onMounted(() => virtualizer.value.measure());
           role="row"
           :aria-rowindex="virtualRow.index + 2"
           :style="{ transform: `translateY(${virtualRow.start}px)` }"
+          :class="{
+            'row-highlighted': highlightedId === rows[virtualRow.index].id,
+          }"
           tabindex="0"
           @keydown="announceShortcut($event, rows[virtualRow.index])"
         >
@@ -192,23 +286,49 @@ onMounted(() => virtualizer.value.measure());
             >{{ rows[virtualRow.index].owner }}
           </div>
           <div class="cell stage-cell" role="gridcell">
-            <select
-              class="stage-select"
-              :class="`stage-${DEAL_STAGES.indexOf(rows[virtualRow.index].stage)}`"
-              :aria-label="`Stage for ${rows[virtualRow.index].companyName}`"
-              :value="rows[virtualRow.index].stage"
-              @change="
-                store.changeStage(
-                  rows[virtualRow.index].id,
-                  ($event.target as HTMLSelectElement)
-                    .value as (typeof rows)[number]['stage'],
-                )
-              "
-            >
-              <option v-for="stage in DEAL_STAGES" :key="stage">
-                {{ stage }}
-              </option>
-            </select>
+            <div class="stage-control">
+              <button
+                class="stage-step"
+                type="button"
+                :disabled="
+                  !adjacentStage(rows[virtualRow.index].stage, 'previous')
+                "
+                :aria-label="
+                  stageArrowLabel(rows[virtualRow.index], 'previous')
+                "
+                :title="stageArrowLabel(rows[virtualRow.index], 'previous')"
+                @click="moveStage(rows[virtualRow.index], 'previous')"
+              >
+                <span aria-hidden="true">←</span>
+              </button>
+              <select
+                class="stage-select"
+                :class="`stage-${DEAL_STAGES.indexOf(rows[virtualRow.index].stage)}`"
+                :aria-label="`Stage for ${rows[virtualRow.index].companyName}`"
+                :value="rows[virtualRow.index].stage"
+                @change="
+                  applyStageChange(
+                    rows[virtualRow.index],
+                    ($event.target as HTMLSelectElement)
+                      .value as (typeof rows)[number]['stage'],
+                  )
+                "
+              >
+                <option v-for="stage in DEAL_STAGES" :key="stage">
+                  {{ stage }}
+                </option>
+              </select>
+              <button
+                class="stage-step"
+                type="button"
+                :disabled="!adjacentStage(rows[virtualRow.index].stage, 'next')"
+                :aria-label="stageArrowLabel(rows[virtualRow.index], 'next')"
+                :title="stageArrowLabel(rows[virtualRow.index], 'next')"
+                @click="moveStage(rows[virtualRow.index], 'next')"
+              >
+                <span aria-hidden="true">→</span>
+              </button>
+            </div>
           </div>
           <div class="cell activity-cell muted-cell" role="gridcell">
             {{
@@ -243,6 +363,7 @@ onMounted(() => virtualizer.value.measure());
           </div>
         </div>
       </div>
+      <span class="sr-only" aria-live="polite">{{ focusAnnouncement }}</span>
       <div v-if="rows.length === 0" class="empty-state">
         <div class="empty-icon">⌕</div>
         <h3>No opportunities found</h3>
