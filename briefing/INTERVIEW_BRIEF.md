@@ -2,54 +2,52 @@
 
 ### HighLevel R1 engineering assignment · Interview brief
 
-## What I built and why
+## What I built
 
-- A frontend CRM workspace for **FurniCraft**, a fictional B2B office furniture supplier using HighLevel.
-- A seeded dataset of **50,000 opportunities** for bulk orders of chairs, desks, conference tables, storage cabinets, and reception desks.
-- Each opportunity shows the prospective customer, product and quantity, INR deal value, owner, stage, and activity dates.
-- Example: **Indigo Networks · Office chairs · 115 units · ₹1,22,000 · Aisha Khan · New Lead**.
-- Users can search, filter, sort, update stages, select records for bulk changes, retry failed records, and attempt a version-checked undo.
+- A sales workspace for **FurniCraft**, a fictional business that sells office furniture to other companies.
+- The app contains 50,000 sample sales opportunities for chairs, desks, conference tables, cabinets, and reception desks.
+- Each opportunity shows the customer, product, number of units, deal value in rupees, sales owner, and current stage.
+- Example: **Indigo Networks** is considering **115 office chairs** worth **₹1,22,000**. **Aisha Khan** owns the opportunity, which is at **New Lead**.
+- Salespeople can find and sort deals, change stages, update many deals together, and retry a save that failed.
 
-The goal is to make a large pipeline practical to review while showing clear save status and recovery when requests fail.
+I built this to show how a sales team can work with a large list and still understand what is happening when a save is slow or fails.
 
-## Architecture at a glance
+## How it works
 
 ```mermaid
 flowchart LR
-  User[Sales team] --> UI[Vue workspace]
-  UI --> Stores[Pinia stores]
-  Stores --> Actions[Record, bulk, sync actions]
-  Actions --> API[Fake API]
-  API --> Server[(Authoritative in-memory data)]
-  Stores --> Cache[(Client cache)]
-  API -. response or conflict .-> Actions
-  Actions -. reconcile .-> Cache
+  User[Salesperson] --> Screen[Sales pipeline screen]
+  Screen --> AppState[App keeps the current data]
+  AppState --> SimAPI[Simulated API]
+  SimAPI --> ServerCopy[Separate server copy]
+  SimAPI -. save result .-> AppState
 ```
 
-- **Vue 3 + TypeScript** build the typed, component-based interface; **Pinia** holds shared client state.
-- **TanStack Vue Virtual** renders viewport rows plus eight overscan rows, not all 50,000 DOM rows.
-- The fake API has a separate server copy and simulates latency, failures, offline mode, and version checks.
+- The screen is built with Vue and TypeScript. Pinia keeps data that is shared across the screen.
+- The table only displays rows near the user's scroll position. This avoids putting all 50,000 rows on screen at once.
+- The simulated API adds delays and failures. It also keeps a separate copy of the data so the app can demonstrate a teammate changing a deal.
 
-## Key UX decisions
+## Key user experience decisions
 
-- **Combine table scanning with Kanban-style stage navigation.** The table keeps customer, product, value, owner, stage, and activity together for comparison and bulk selection. Click a stage in the stage strip to filter the table to deals at that stage, similar to opening a Kanban column. Move an individual deal with the row's left/right arrows or keyboard shortcuts; use the dropdown for direct stage selection. This keeps Kanban's quick stage-focused browsing and movement while retaining the table's dense, sortable list.
-- **One focused workspace.** Metrics, filters, table, and bulk actions stay together so reps keep their context.
-- **Preserve review position.** After a successful save, the moved row gets a brief highlight and focus advances to the next opportunity in the old order. Teammates updates wait for explicit sync; **Go to active row** helps restore the user's place.
-- **Selection follows IDs.** It survives virtual rows mounting and unmounting. The header checkbox selects rendered rows; **Select all matching** snapshots the filtered IDs.
+- **Combine the useful parts of a table and Kanban.** The table makes it easy to compare customer, product, value, owner, and stage. Click a stage at the top to show the deals in that stage, like opening a Kanban column. Move a deal to the previous or next stage with the row arrows or keyboard shortcuts. Use the dropdown to choose any stage directly.
+- **Keep the main work in one place.** Summary numbers, filters, and the table stay together, so salespeople do not have to switch pages while reviewing deals.
+- **Help the salesperson keep their place.** For example, imagine someone is reviewing deals 1 through 5 and changes deal 5. The updated deal may move to the top of the table. The app briefly highlights it and moves focus to deal 6, so the salesperson can continue where they left off.
+- **Let the user choose when to see teammate changes.** A teammate's simulated change waits until the user clicks **Sync updates**. The user can then click **Go to active row** to return to the deal they were working on.
+- **Make selection clear for large lists.** The checkbox at the top selects the rows currently shown in the table. **Select all matching** selects every deal that matches the current filters, including deals farther down the list. For example, filter to Proposal Sent, then select all matching to select every deal in that stage.
 
-## Failed saves and teammate changes
+## When saves fail or teammates change a deal
 
-- **Individual save:** The stage changes optimistically, then the API response either confirms it or triggers reconciliation. Errors and conflicts have distinct states and retry actions.
-- **Same-record ordering:** Writes are serialized locally; revisions prevent an older response from replacing newer user intent.
-- **Version conflict:** A write includes its expected version. If User A changes version 1 to 2, User B's write expecting version 1 is rejected with the latest record instead of overwriting A.
-- **Bulk save:** Records are sent in sequential batches of up to 500, with per-record outcomes. Successful rows remain saved; failed rows can be retried alone. Cancel stops before the next batch; an in-flight batch finishes first.
-- **Important boundary:** Teammate edits are simulated in one in-memory API, not synchronized across real browsers or devices. Undo is a version-checked compensating update, not a database transaction, and its failure recovery needs improvement.
+- **Single deal — optimistic update:** The screen shows the new stage right away, before the save finishes. We use this so salespeople can keep working instead of waiting for a slow response. If the save succeeds, the new stage stays. If it fails, the app shows an error, restores the latest available data, and offers a retry.
+- **Two people change the same deal:** Every deal has a version number. If one person saves first, the version increases. A second save based on the older version is rejected, so it cannot silently overwrite the first change. The row then shows **Update conflict** and displays the latest stage from the server. The user can click **Retry**; the app fetches the latest version and tries the user's original stage change again. This retry is automatic: there is no separate screen to compare both changes or choose a different value, so that is an area to improve.
+- **Many deals at once:** Bulk updates are sent in batches of up to 500. Some deals can succeed while others fail. Successful changes stay saved; the user can retry only the failed deals. If the user cancels, the current batch finishes before the app stops sending more.
+- **Current limitation:** The simulated API does not connect separate browsers or devices. Undo only puts a deal back if nobody has changed it since the bulk update. If the Undo save fails, the deal stays changed and the app does not offer another Undo retry; the user would have to change it back manually.
 
-## What I would do with more time
+## What I would improve with more time
 
-1. **Correctness and tests:** generate the required 20 owners (the current generator has 7); add deterministic tests for mixed bulk outcomes, failed undo, and teammate conflicts; fix the owner-only stage count's accessible label.
-2. **Production data flow:** move search, filtering, sorting, metrics, and pagination to the server; replace full-snapshot sync with incremental updates.
-3. **Production safeguards:** add authentication/authorization, runtime validation, idempotency keys, durable bulk-job results, explicit cancellation semantics, and observability.
-4. **Measure performance:** profile the 50,000-record workflow in a production build before making numeric performance claims. No browser benchmark exists today.
+1. **Create pipelines:** Let managers create different sales pipelines and choose the stages in each one. A new furniture enquiry and a repeat customer order might follow different steps.
+2. **Create opportunities:** Add a form for entering a new deal, including the customer, product, quantity, estimated value, owner, stage, expected close date, and next action.
+3. **Add custom fields and more deal details:** Let managers add fields such as delivery city, installation required, or number of office locations. Show contact details, notes, and a history of calls and emails on each deal.
+4. **Improve filtering:** Let users filter by product, quantity, close date, delivery city, stage, owner, recent activity, and tags. Let them save useful searches, such as “large chair orders with no recent follow-up.”
+5. **Add smart tags:** Automatically label deals using clear rules. For example, tag a deal **High value** if it is above a chosen amount, **Needs follow-up** if there has been no activity for 30 days, **Closing soon** if its expected close date is near, or **Large chair order** if it meets a product and quantity rule. Show why each tag was added and let users correct it.
 
-**Trade-off:** This frontend simulation demonstrates reliability patterns, but real production guarantees require a backend that enforces versions atomically and shares authoritative state across clients.
+These additions would help FurniCraft set up its sales process, capture the details needed to fulfill an order, and spot deals that need attention.
