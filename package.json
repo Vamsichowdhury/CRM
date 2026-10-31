@@ -1,0 +1,36 @@
+{
+  "name": "sales-pipeline-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@tanstack/vue-virtual": "^3.13.12",
+    "pinia": "^3.0.3",
+    "vue": "^3.5.22"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.38.0",
+    "@types/node": "^24.8.1",
+    "@vitejs/plugin-vue": "^6.0.2",
+    "@vue/test-utils": "^2.4.6",
+    "eslint": "^9.38.0",
+    "eslint-plugin-vue": "^10.5.1",
+    "globals": "^16.4.0",
+    "jsdom": "^27.0.0",
+    "prettier": "^3.6.2",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.46.1",
+    "vite": "^7.1.12",
+    "vitest": "^3.2.4",
+    "vue-tsc": "^3.1.1"
+  }
+}
