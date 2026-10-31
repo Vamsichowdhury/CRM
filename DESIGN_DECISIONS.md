@@ -1,5 +1,13 @@
 # Design decisions
 
+## Demo business domain
+
+**Chosen:** FurniCraft is a fictional commercial furniture supplier selling office chairs, office desks, conference tables, storage cabinets, and reception desks in bulk to business customers.
+
+**Why:** A concrete B2B scenario makes the sample companies, order quantities, Indian Rupee values, and pipeline labels easier to understand. The seeded 50,000-record dataset uses furniture products and units, with quantities and values scaled to each product category.
+
+**Trade-off:** The opportunity data contract retains its existing quantity field for compatibility with stores and tests; the interface presents that quantity as furniture units.
+
 ## Table versus Kanban
 
 **Chosen:** A dense opportunity table is the primary workflow, with a stage summary strip above it.

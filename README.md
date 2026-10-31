@@ -1,10 +1,12 @@
-# HighLevel Sales Pipeline
+# FurniCraft Sales Pipeline
 
-A table-first sales pipeline workspace for a 20-person B2B sales team managing 50,000 opportunities. It demonstrates virtualized data browsing, optimistic updates, version conflicts, explicit recovery, and bulk operations against a simulated in-memory API.
+A table-first sales pipeline workspace running on HighLevel for FurniCraft, a fictional B2B supplier of office chairs, office desks, conference tables, storage cabinets, and reception desks. FurniCraft is the business using the software; HighLevel is the CRM platform. It manages 50,000 potential business-customer orders with realistic bulk quantities and Indian Rupee deal values. It demonstrates virtualized data browsing, optimistic updates, version conflicts, explicit recovery, and bulk operations against a simulated in-memory API.
+
+The first seeded example is Indigo Networks ordering 115 office chairs for ₹1,22,000, owned by Aisha Khan and currently at New Lead.
 
 ## Problem and product choices
 
-Sales teams need to find deals that have gone quiet, make safe changes even when requests fail, and act on large groups of records without waiting for thousands of cards to render. The workspace puts the searchable, filterable opportunity table first. A compact stage strip gives a visual pipeline overview and filters the table when selected.
+FurniCraft's sales team needs to find furniture enquiries that have gone quiet, make safe changes even when requests fail, and act on large groups of customer orders without waiting for thousands of rows to render. The workspace puts the searchable, filterable opportunity table first. A stage strip shows each stage's share of the pipeline and filters the table when selected. Owner filtering includes a searchable dropdown.
 
 See [DESIGN_DECISIONS.md](./DESIGN_DECISIONS.md) for the reasoning and trade-offs behind the table, virtualizer, selection, optimistic updates, concurrency, and bulk operations.
 
@@ -20,9 +22,10 @@ The fake API owns an authoritative server-side `Map` separate from client state.
 
 ## Features
 
-- Seeded dataset of 50,000 opportunities generated once per page session
-- Summary metrics and stage counts derived from the loaded records
-- Search by company or opportunity; filter by stage, owner, deal value, and 30-day inactivity
+- Seeded dataset of 50,000 FurniCraft business-customer opportunities generated once per page session
+- Office-furniture products, order quantities, named sales owners, and Indian Rupee deal values
+- Summary metrics and stage counts and percentages derived from loaded records
+- Search by customer company or furniture product; filter by stage, searchable owner, deal value, and 30-day inactivity
 - Sort by company, deal value, last activity, and updated time
 - Move deals one stage forward or back with inline arrows; keep the dropdown for direct stage selection
 - After a successful row update, briefly highlight its new position and advance focus to the next opportunity in the pre-update review order
@@ -49,7 +52,7 @@ Bulk work is sent in batches of 500. A batch shares one simulated request delay,
 
 ## Simulation controls
 
-Defaults are 300–1500 ms request delay and 10% save failure probability. Use the controls at the bottom of the workspace to adjust failure rate or switch offline. The header action simulates a teammate editing one record. This models concurrent writes through a shared frontend service; it does not synchronize separate browser tabs or devices.
+Defaults are 300–1500 ms request delay and 10% save failure probability. Use the controls at the bottom of the workspace to adjust failure rate or switch offline. The header action simulates a FurniCraft teammate editing one customer opportunity. This models concurrent writes through a shared frontend service; it does not synchronize separate browser tabs or devices.
 
 ## Folder structure
 

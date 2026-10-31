@@ -103,6 +103,9 @@ function sortLabel(field: SortField, label: string) {
 function statusLabel(id: string) {
   return store.saveStates.get(id) ?? "saved";
 }
+function needsAttention(opportunity: Opportunity) {
+  return Date.parse(opportunity.lastActivityAt) < Date.now() - 30 * 86_400_000;
+}
 function stageArrowLabel(
   opportunity: Opportunity,
   direction: "previous" | "next",
@@ -213,9 +216,9 @@ onUnmounted(() => window.clearTimeout(highlightTimer));
           role="columnheader"
           @click="sort('companyName')"
         >
-          {{ sortLabel("companyName", "Company") }}
+          {{ sortLabel("companyName", "Customer company") }}
         </button>
-        <div class="cell opportunity-cell" role="columnheader">Opportunity</div>
+        <div class="cell opportunity-cell" role="columnheader">Furniture order</div>
         <button
           class="cell sortable value-cell"
           role="columnheader"
@@ -268,10 +271,10 @@ onUnmounted(() => window.clearTimeout(highlightTimer));
             {{ rows[virtualRow.index].companyName }}
           </div>
           <div class="cell opportunity-cell" role="gridcell">
-            <span class="opportunity-name">{{
-              rows[virtualRow.index].opportunityName
-            }}</span
-            ><small>{{ rows[virtualRow.index].licenceCount }} licences</small>
+            <span class="opportunity-name">
+              {{ rows[virtualRow.index].opportunityName }} ·
+              {{ rows[virtualRow.index].licenceCount }} units
+            </span>
           </div>
           <div class="cell value-cell" role="gridcell">
             {{ currencies.format(rows[virtualRow.index].dealValue) }}
@@ -330,10 +333,19 @@ onUnmounted(() => window.clearTimeout(highlightTimer));
               </button>
             </div>
           </div>
-          <div class="cell activity-cell muted-cell" role="gridcell">
-            {{
-              dateFormat.format(new Date(rows[virtualRow.index].lastActivityAt))
-            }}
+          <div
+            class="cell activity-cell muted-cell"
+            :class="{
+              'needs-attention': needsAttention(rows[virtualRow.index]),
+            }"
+            :title="
+              needsAttention(rows[virtualRow.index])
+                ? 'No activity in 30+ days'
+                : undefined
+            "
+            role="gridcell"
+          >
+            {{ dateFormat.format(new Date(rows[virtualRow.index].lastActivityAt)) }}
           </div>
           <div class="cell updated-cell muted-cell" role="gridcell">
             {{ dateFormat.format(new Date(rows[virtualRow.index].updatedAt)) }}

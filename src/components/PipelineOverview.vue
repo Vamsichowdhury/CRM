@@ -6,6 +6,14 @@ import { useOpportunityStore } from "../stores/opportunities";
 const store = useOpportunityStore();
 const wonCount = computed(() => store.stageCounts.Won);
 const lostCount = computed(() => store.stageCounts.Lost);
+const stageShare = (stage: DealStage) =>
+  store.records.length
+    ? Math.round((store.stageCounts[stage] / store.records.length) * 100)
+    : 0;
+const percentage = (count: number) =>
+  store.records.length
+    ? Math.round((count / store.records.length) * 100)
+    : 0;
 const currency = (value: number) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -30,20 +38,20 @@ function choose(stage: DealStage) {
         ><strong>{{ currency(store.totalValue) }}</strong
         ><small>across all stages</small>
       </article>
-      <article class="metric-card">
+      <article class="metric-card metric-won">
         <span class="metric-label">Won</span
         ><strong>{{ wonCount.toLocaleString("en-IN") }}</strong
-        ><small>closed successfully</small>
+        ><small>{{ percentage(wonCount) }}% of opportunities</small>
       </article>
-      <article class="metric-card">
+      <article class="metric-card metric-lost">
         <span class="metric-label">Lost</span
         ><strong>{{ lostCount.toLocaleString("en-IN") }}</strong
-        ><small>closed opportunities</small>
+        ><small>{{ percentage(lostCount) }}% of opportunities</small>
       </article>
       <article class="metric-card attention">
         <span class="metric-label">Needs attention</span
         ><strong>{{ store.attentionCount.toLocaleString("en-IN") }}</strong
-        ><small>no activity in 30+ days</small>
+        ><small>{{ percentage(store.attentionCount) }}% · inactive 30+ days</small>
       </article>
     </div>
     <div class="stage-strip" aria-label="Filter by pipeline stage">
@@ -56,10 +64,18 @@ function choose(stage: DealStage) {
           `tone-${DEAL_STAGES.indexOf(stage)}`,
         ]"
         :aria-pressed="store.filters.stage === stage"
+        :aria-label="`${stage}: ${store.stageCounts[stage].toLocaleString('en-IN')} opportunities, ${stageShare(stage)}% of pipeline`"
+        :title="`${stageShare(stage)}% of opportunities`"
         @click="choose(stage)"
       >
-        <span>{{ stage }}</span
-        ><strong>{{ store.stageCounts[stage].toLocaleString("en-IN") }}</strong>
+        <span class="stage-name">{{ stage }}</span>
+        <span class="stage-stats">
+          <strong>{{ store.stageCounts[stage].toLocaleString("en-IN") }}</strong>
+          <small>{{ stageShare(stage) }}%</small>
+        </span>
+        <i class="stage-meter" aria-hidden="true"
+          ><b :style="{ width: `${stageShare(stage)}%` }"></b
+        ></i>
       </button>
     </div>
   </section>

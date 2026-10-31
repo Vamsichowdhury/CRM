@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import PipelineOverview from "./components/PipelineOverview.vue";
 import OpportunityTable from "./components/OpportunityTable.vue";
 import SimulationPanel from "./components/SimulationPanel.vue";
@@ -11,6 +11,11 @@ import { useSelectionStore } from "./stores/selection";
 const store = useOpportunityStore();
 const selection = useSelectionStore();
 const searchInput = ref<HTMLInputElement | null>(null);
+const ownerFilterRoot = ref<HTMLElement | null>(null);
+const ownerFilterTrigger = ref<HTMLButtonElement | null>(null);
+const ownerSearchInput = ref<HTMLInputElement | null>(null);
+const ownerMenuOpen = ref(false);
+const ownerSearch = ref("");
 const selectedStage = ref<DealStage | "">("");
 const loadError = ref("");
 type Theme = "light" | "dark";
@@ -38,6 +43,19 @@ const toast = ref<{
 let toastTimer: number | undefined;
 const selectedCount = computed(() => selection.selectionCount);
 const busy = computed(() => store.bulkProgress.running);
+const ownerChoices = computed(() => {
+  const search = ownerSearch.value.trim().toLocaleLowerCase();
+  return ["All owners", ...OWNERS].filter((owner) =>
+    owner.toLocaleLowerCase().includes(search),
+  );
+});
+const bulkProgressPercent = computed(() =>
+  store.bulkProgress.total
+    ? Math.round(
+        (store.bulkProgress.completed / store.bulkProgress.total) * 100,
+      )
+    : 0,
+);
 watch(
   theme,
   (value) => {
@@ -125,6 +143,59 @@ function selectAllMatching() {
     "info",
   );
 }
+async function toggleOwnerMenu() {
+  ownerMenuOpen.value = !ownerMenuOpen.value;
+  if (!ownerMenuOpen.value) return;
+  ownerSearch.value = "";
+  await nextTick();
+  ownerSearchInput.value?.focus();
+}
+function chooseOwner(owner: string) {
+  store.filters.owner = owner === "All owners" ? "" : owner;
+  ownerMenuOpen.value = false;
+  ownerSearch.value = "";
+  ownerFilterTrigger.value?.focus();
+}
+function onOwnerFilterPointerDown(event: PointerEvent) {
+  if (!ownerFilterRoot.value?.contains(event.target as Node))
+    ownerMenuOpen.value = false;
+}
+function onOwnerSearchKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    ownerMenuOpen.value = false;
+    ownerFilterTrigger.value?.focus();
+  } else if (event.key === "ArrowDown") {
+    event.preventDefault();
+    ownerFilterRoot.value
+      ?.querySelector<HTMLElement>('[role="option"]:not([aria-disabled="true"])')
+      ?.focus();
+  } else if (event.key === "Enter" && ownerChoices.value.length === 1) {
+    event.preventDefault();
+    chooseOwner(ownerChoices.value[0]);
+  }
+}
+function onOwnerOptionKeydown(event: KeyboardEvent, owner: string) {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    chooseOwner(owner);
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    ownerMenuOpen.value = false;
+    ownerFilterTrigger.value?.focus();
+  } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const options = Array.from(
+      ownerFilterRoot.value?.querySelectorAll<HTMLElement>(
+        '[role="option"]:not([aria-disabled="true"])',
+      ) ?? [],
+    );
+    const nextIndex =
+      options.indexOf(event.currentTarget as HTMLElement) +
+      (event.key === "ArrowDown" ? 1 : -1);
+    options[nextIndex]?.focus();
+  }
+}
 async function teammateChange() {
   try {
     const update = await store.simulateTeammate();
@@ -141,6 +212,7 @@ async function teammateChange() {
   }
 }
 function onShortcut(event: KeyboardEvent) {
+  if (event.defaultPrevented) return;
   if (
     event.key === "/" &&
     !(event.target instanceof HTMLInputElement) &&
@@ -174,12 +246,14 @@ async function loadPipeline() {
 }
 onMounted(() => {
   window.addEventListener("keydown", onShortcut);
+  document.addEventListener("pointerdown", onOwnerFilterPointerDown);
   if (!hasSavedThemePreference.value)
     systemThemeQuery?.addEventListener("change", onSystemThemeChange);
   void loadPipeline();
 });
 onUnmounted(() => {
   window.removeEventListener("keydown", onShortcut);
+  document.removeEventListener("pointerdown", onOwnerFilterPointerDown);
   systemThemeQuery?.removeEventListener("change", onSystemThemeChange);
   window.clearTimeout(toastTimer);
 });
@@ -188,16 +262,31 @@ onUnmounted(() => {
 <template>
   <div class="app-frame" :data-theme="theme">
     <header class="app-header">
-      <a class="brand" href="#" aria-label="HighLevel home"
-        ><span class="brand-mark">HL</span><span>HighLevel</span></a
-      >
+      <a class="brand" href="#" aria-label="FurniCraft on HighLevel">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none">
+            <path
+              d="M10 5v9h12V5M8 14h16v5H8zM10 19v8m12-8v8M8 27h16"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </span>
+        <span class="brand-copy">
+          <strong>FurniCraft</strong>
+          <small>Commercial Furniture Solutions</small>
+        </span>
+        <span class="brand-platform">Powered by <strong>HighLevel</strong></span>
+      </a>
       <div class="header-divider"></div>
       <div class="workspace-title">
-        <span>Revenue workspace</span><span class="crumb-sep">/</span
-        ><strong>Sales pipeline</strong>
+        <span>Commercial sales</span><span class="crumb-sep">/</span
+        ><strong>Pipeline</strong>
       </div>
       <div class="header-right">
-        <span class="workspace-pill"><i></i> All opportunities</span>
+        <span class="workspace-pill"><i></i> B2B customers</span>
         <button
           class="theme-toggle"
           type="button"
@@ -207,17 +296,17 @@ onUnmounted(() => {
         >
           <span aria-hidden="true">{{ theme === "dark" ? "☼" : "☾" }}</span>
         </button>
-        <div class="user-avatar" aria-label="Signed in as Vamsi">V</div>
+        <div class="user-avatar" aria-label="FurniCraft sales team">FC</div>
       </div>
     </header>
 
     <main class="main-content">
       <div class="page-heading">
         <div>
-          <p class="eyebrow">WORKSPACE / PIPELINE</p>
-          <h1>Sales pipeline</h1>
+          <p class="eyebrow">FURNICRAFT ON HIGHLEVEL / COMMERCIAL SALES</p>
+          <h1>Sales Pipeline</h1>
           <p class="subheading">
-            Track opportunities, move deals forward, and keep the team in sync.
+            Manage furniture enquiries, customer orders and sales opportunities.
           </p>
         </div>
         <button class="button secondary" @click="teammateChange">
@@ -257,19 +346,62 @@ onUnmounted(() => {
                 ref="searchInput"
                 v-model="store.filters.search"
                 type="search"
-                placeholder="Search companies or opportunities…"
-                aria-label="Search companies or opportunities"
+                placeholder="Search customer companies or furniture products…"
+                aria-label="Search customer companies or furniture products"
               /><kbd>/</kbd>
             </div>
-            <label class="filter-select"
-              ><span class="sr-only">Filter by owner</span
-              ><select v-model="store.filters.owner">
-                <option value="">All owners</option>
-                <option v-for="owner in OWNERS" :key="owner">
-                  {{ owner }}
-                </option>
-              </select></label
-            >
+            <div ref="ownerFilterRoot" class="owner-filter">
+              <button
+                ref="ownerFilterTrigger"
+                class="owner-filter-trigger filter-select"
+                type="button"
+                aria-label="Filter by owner"
+                aria-haspopup="listbox"
+                :aria-controls="ownerMenuOpen ? 'owner-filter-options' : undefined"
+                :aria-expanded="ownerMenuOpen"
+                @click="toggleOwnerMenu"
+              >
+                <span>{{ store.filters.owner || "All owners" }}</span>
+                <span class="owner-chevron" aria-hidden="true">⌄</span>
+              </button>
+              <div v-if="ownerMenuOpen" class="owner-menu">
+                <input
+                  ref="ownerSearchInput"
+                  v-model="ownerSearch"
+                  type="search"
+                  role="searchbox"
+                  aria-label="Search owners"
+                  placeholder="Search owners…"
+                  @keydown="onOwnerSearchKeydown"
+                />
+                <div
+                  id="owner-filter-options"
+                  class="owner-options"
+                  role="listbox"
+                  aria-label="Sales owners"
+                >
+                  <button
+                    v-for="owner in ownerChoices"
+                    :key="owner"
+                    class="owner-option"
+                    type="button"
+                    role="option"
+                    :aria-selected="
+                      owner === 'All owners'
+                        ? !store.filters.owner
+                        : store.filters.owner === owner
+                    "
+                    @click="chooseOwner(owner)"
+                    @keydown="onOwnerOptionKeydown($event, owner)"
+                  >
+                    {{ owner }}
+                  </button>
+                  <span v-if="!ownerChoices.length" class="owner-empty">
+                    No owners match “{{ ownerSearch }}”
+                  </span>
+                </div>
+              </div>
+            </div>
             <label class="filter-select stage-filter-select"
               ><span class="sr-only">Filter by stage</span
               ><select v-model="store.filters.stage">
@@ -285,7 +417,7 @@ onUnmounted(() => {
                 v-model.number="store.filters.minValue"
                 type="number"
                 min="0"
-                placeholder="Min value"
+                placeholder="Min ₹"
             /></label>
             <label class="filter-select amount-filter"
               ><span class="sr-only">Maximum deal value</span
@@ -293,7 +425,7 @@ onUnmounted(() => {
                 v-model.number="store.filters.maxValue"
                 type="number"
                 min="0"
-                placeholder="Max value"
+                placeholder="Max ₹"
             /></label>
             <label class="stale-toggle"
               ><input v-model="store.filters.staleOnly" type="checkbox" /><span
@@ -360,7 +492,8 @@ onUnmounted(() => {
               <span>Updating opportunities</span
               ><strong
                 >{{ store.bulkProgress.completed.toLocaleString("en-IN") }} /
-                {{ store.bulkProgress.total.toLocaleString("en-IN") }}</strong
+                {{ store.bulkProgress.total.toLocaleString("en-IN") }} ·
+                {{ bulkProgressPercent }}%</strong
               ><button class="cancel-bulk" @click="store.cancelBulk">
                 Cancel
               </button>
@@ -403,8 +536,8 @@ onUnmounted(() => {
       </template>
       <footer class="page-footer">
         <span
-          >HighLevel CRM <b>·</b> Pipeline data is stored locally for this
-          demo</span
+          >HighLevel CRM <b>·</b> FurniCraft workspace <b>·</b> Sample pipeline
+          data is stored locally for this demo</span
         ><span>Last synced just now</span>
       </footer>
     </main>
