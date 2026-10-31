@@ -1,6 +1,6 @@
 # FurniCraft Sales Pipeline
 
-A table-first sales pipeline workspace running on HighLevel for FurniCraft, a fictional B2B supplier of office chairs, office desks, conference tables, storage cabinets, and reception desks. FurniCraft is the business using the software; HighLevel is the CRM platform. It manages 50,000 potential business-customer orders with realistic bulk quantities and Indian Rupee deal values. It demonstrates virtualized data browsing, optimistic updates, version conflicts, explicit recovery, and bulk operations against a simulated in-memory API.
+A table-first sales pipeline workspace running on HighLevel for FurniCraft, a fictional B2B supplier of office chairs, office desks, conference tables, storage cabinets, and reception desks. FurniCraft is the business using the software; HighLevel is the CRM platform. It manages 50,000 potential business-customer orders with realistic bulk quantities and Indian Rupee deal values. It demonstrates virtualized data browsing, optimistic updates, explicit recovery, manual teammate synchronization, and bulk operations against a simulated in-memory API.
 
 The first seeded example is Indigo Networks ordering 115 office chairs for ₹1,22,000, owned by Aisha Khan and currently at New Lead.
 
@@ -29,10 +29,11 @@ The fake API owns an authoritative server-side `Map` separate from client state.
 - Sort by company, deal value, last activity, and updated time
 - Move deals one stage forward or back with inline arrows; keep the dropdown for direct stage selection
 - After a successful row update, briefly highlight its new position and advance focus to the next opportunity in the pre-update review order
+- Keep teammate edits pending on the simulated server until the user clicks Sync updates; mark the active row and provide a Go to active row control after reordering
 - TanStack virtualized rows with an overscan of eight rows
 - Select rendered rows, select all matching filtered results, exclude individual IDs, and clear selection
 - Optimistic stage changes with saving/saved/error/conflict states, retry, and stale-response protection
-- Bulk stage changes in batches of 500, with per-record partial failure status, retry of failures, and version-checked undo
+- Bulk stage changes in batches of 500, with per-record version checks, partial failure status, retry of failures, and version-checked undo
 - Cancel bulk work between dispatched batches; in-flight records finish and undispatched rows are reconciled
 - Teammate update simulation and network simulation controls
 - Persistent light/dark theme toggle that follows system preference until the user chooses a theme
@@ -40,19 +41,19 @@ The fake API owns an authoritative server-side `Map` separate from client state.
 
 ## Performance approach
 
-Only the current viewport and eight overscan rows are mounted. Filtering and sorting operate on the in-memory array; sorting uses a copied filtered list so the base dataset order is not changed. Summary values are computed from records rather than hard-coded. The simulation stores client and server records separately to make conflict checks meaningful.
+Only the current viewport and eight overscan rows are mounted. Filtering and sorting operate on the in-memory array; sorting uses a copied filtered list so the base dataset order is not changed. Summary values are computed from records rather than hard-coded. The simulation keeps client and server records separate so teammate changes can wait for explicit synchronization.
 
 The dataset is still in memory, and a filter or sort scans up to 50,000 records. This is suitable for the assignment, not a claim about a production-scale remote data architecture. For a production service, filtering, pagination, and summaries would generally be server-backed and instrumented against real workloads.
 
 ## Reliability and bulk behavior
 
-Individual changes are optimistic. A per-record operation revision ensures that an old response cannot replace the latest local edit. Same-record requests are serialized and obtain the latest server version before applying the next requested stage. A version mismatch returns the authoritative record; the UI reconciles to it and exposes a retry action. Retrying re-applies the user's intended stage on top of the newest version.
+Individual changes are optimistic. A per-record local operation revision ensures that an old response cannot replace the latest local edit, and same-record requests are serialized. Each write includes the server version it expects; if another user changes that record before the write arrives, the server rejects it and returns the latest record for review and retry. Teammate edits remain on the simulated server until the user clicks **Sync updates**, so remote changes do not continuously reorder the table. The active row remains highlighted, and **Go to active row** restores it after a sync. Failed writes restore the latest server record when available and expose a prominent retry action.
 
-Bulk work is sent in batches of 500. A batch shares one simulated request delay, then each record is independently version-checked and may fail. Successful records remain saved when others fail. The toolbar reports progress and offers retry for failed IDs. Undo is best effort and applies only when each record still matches the version observed after the bulk update; changed records are skipped instead of overwritten.
+Bulk work is sent in batches of 500. A batch shares one simulated request delay, then each record is version-checked and may independently fail. Successful records remain saved when others fail. The toolbar reports progress and offers retry for failed IDs. Undo is best effort and only restores records whose versions still match the post-bulk version, so it cannot overwrite a newer edit.
 
 ## Simulation controls
 
-Defaults are 300–1500 ms request delay and 10% save failure probability. Use the controls at the bottom of the workspace to adjust failure rate or switch offline. The header action simulates a FurniCraft teammate editing one customer opportunity. This models concurrent writes through a shared frontend service; it does not synchronize separate browser tabs or devices.
+Defaults are 300–1500 ms request delay and 10% save failure probability. Use the controls at the bottom of the workspace to adjust failure rate or switch offline. The header action simulates a FurniCraft teammate editing one customer opportunity. That server-side change stays pending until **Sync updates** is clicked; this simulation does not synchronize separate browser tabs or devices.
 
 ## Folder structure
 

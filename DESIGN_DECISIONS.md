@@ -24,7 +24,7 @@
 
 **Chosen:** Keep the stage dropdown and add previous/next arrow buttons beside it.
 
-**Why:** The table stays compact and scannable, while the arrows reduce a common stage move to one click. Both controls use the same optimistic update path, so save status and conflict handling stay consistent.
+**Why:** The table stays compact and scannable, while the arrows reduce a common stage move to one click. Both controls use the same optimistic update path, so save status and error recovery stay consistent.
 
 **Stage order:** Forward arrows follow New Lead → Contacted → Demo Done → Proposal Sent → Negotiation → Won. Lost is a terminal outcome rather than a step after Won, so it remains available in the dropdown. From Won or Lost, the previous arrow returns the deal to Negotiation; unavailable directions are disabled.
 
@@ -42,15 +42,21 @@ After a successful single-row update, the moved row is highlighted briefly and k
 
 **Trade-off:** The client temporarily displays a value that may not be accepted. The status and error recovery make that temporary state explicit.
 
-## Version-based concurrency
+## Manual teammate synchronization
 
-**Chosen:** Every server record has an integer version; updates include the version they expect.
+**Chosen:** Teammate edits update the simulated server but remain out of the visible table until the user selects **Sync updates**. The active row stays highlighted and can be restored with **Go to active row** after the refreshed data reorders.
 
-**Why:** It is enough to reject stale writes and return current server data without adding locks or a synchronization protocol. Per-record revisions prevent older responses from overwriting a newer local operation.
+**Why:** Applying each remote edit immediately can reorder an all-owner table while someone is reviewing it. A deliberate refresh makes the reordering predictable and gives the user a stable review anchor.
 
-**Considered:** Last-write-wins and distributed locking. Last-write-wins can silently erase a teammate's work; locks are beyond the needs of this single frontend simulation.
+**Trade-off:** The visible table can be stale until the user syncs. Local edits remain optimistic and same-record requests are serialized in the client; version checks reject a write if that same record changed after the expected version was read.
 
-**Trade-off:** A conflict needs a user retry or discard decision. The fake service only simulates teammates sharing this app instance; it is not cross-browser synchronization.
+## Same-record concurrency
+
+**Chosen:** Every opportunity carries a server version. Single and bulk writes include the version they expect; stale writes return the latest record and are shown as conflicts.
+
+**Why:** Concurrent edits to different rows are handled by manual table synchronization. Version checks protect the separate case where two users edit the same opportunity, preventing either write from silently replacing a newer change.
+
+**Trade-off:** A conflict needs review and retry. The local per-record queue also serializes rapid edits from one browser, while a revision token prevents older responses from replacing newer local intent.
 
 ## TanStack Vue Virtual
 
@@ -74,7 +80,7 @@ After a successful single-row update, the moved row is highlighted briefly and k
 
 ## Bulk batching and partial failures
 
-**Chosen:** Send 500-record batches sequentially; the fake API applies per-record version checks and failures within each request.
+**Chosen:** Send 500-record batches sequentially; the fake API applies per-record failures within each request.
 
 **Why:** A batch delay is paid once, and the client never starts an unbounded number of requests. Per-record results keep successful updates when a few records fail.
 
@@ -84,11 +90,11 @@ After a successful single-row update, the moved row is highlighted briefly and k
 
 ## Undo safety
 
-**Chosen:** Capture prior stages and use the latest client version for each undo request. The server rejects stale versions; skipped records are counted.
+**Chosen:** Capture prior stages and post-bulk versions. Undo only writes a record if its version still matches that post-bulk version.
 
-**Why:** An undo must not erase an edit made by a teammate after the bulk operation.
+**Why:** Users can reverse a bulk stage change without repeating the selection workflow, while avoiding overwriting a teammate's later edit.
 
-**Considered:** Blindly restoring prior values. That can overwrite newer work.
+**Considered:** Blindly restoring all prior stages. That can erase an edit made after the bulk operation.
 
 **Trade-off:** Undo can be partial. The user sees restored and skipped counts.
 

@@ -201,7 +201,7 @@ async function teammateChange() {
     const update = await store.simulateTeammate();
     if (update)
       notify(
-        `Teammate updated ${update.companyName} · version ${update.version}`,
+        `Teammate updated ${update.companyName}. Sync to load the latest table data.`,
         "info",
       );
   } catch (error) {
@@ -309,7 +309,11 @@ onUnmounted(() => {
             Manage furniture enquiries, customer orders and sales opportunities.
           </p>
         </div>
-        <button class="button secondary" @click="teammateChange">
+        <button
+          class="button secondary"
+          :disabled="store.syncing || busy"
+          @click="teammateChange"
+        >
           <span class="button-icon">⟳</span> Simulate teammate update
         </button>
       </div>
@@ -509,6 +513,8 @@ onUnmounted(() => {
           <OpportunityTable
             @stage-saved="notify($event, 'success')"
             @save-error="notify($event, 'error')"
+            @sync-complete="notify($event, 'info')"
+            @sync-error="notify($event, 'error')"
           />
         </section>
 

@@ -15,6 +15,8 @@ import { nextReviewOpportunityId } from "../utils/nextReviewOpportunity";
 const emit = defineEmits<{
   stageSaved: [message: string];
   saveError: [message: string];
+  syncComplete: [message: string];
+  syncError: [message: string];
 }>();
 const store = useOpportunityStore();
 const selection = useSelectionStore();
@@ -22,7 +24,9 @@ const scrollElement = ref<HTMLElement | null>(null);
 const highlightedId = ref<string | null>(null);
 const focusAnnouncement = ref("");
 const updateNotice = ref("");
+const activeRowId = ref<string | null>(null);
 let highlightTimer: number | undefined;
+let noticeTimer: number | undefined;
 const rows = computed(() => store.visibleRecords);
 const virtualizer = useVirtualizer(
   computed(() => ({
@@ -57,9 +61,47 @@ const visibleStart = computed(() =>
   rows.value.length ? (virtualRows.value[0]?.index ?? 0) + 1 : 0,
 );
 const visibleEnd = computed(() => (virtualRows.value.at(-1)?.index ?? -1) + 1);
+const activeRowIndex = computed(() =>
+  activeRowId.value
+    ? rows.value.findIndex((row) => row.id === activeRowId.value)
+    : -1,
+);
 
 function toggleRendered() {
   selection.selectVisible(renderedIds.value, !allRenderedSelected.value);
+}
+function setActiveRow(id: string) {
+  activeRowId.value = id;
+}
+function jumpToActiveRow() {
+  const id = activeRowId.value;
+  if (!id || activeRowIndex.value < 0) return;
+  virtualizer.value.scrollToIndex(activeRowIndex.value, { align: "auto" });
+  window.requestAnimationFrame(() =>
+    window.requestAnimationFrame(() =>
+      document.getElementById(`opportunity-row-${id}`)?.focus(),
+    ),
+  );
+}
+async function syncLatest() {
+  try {
+    const count = store.pendingSyncCount;
+    await store.syncLatest();
+    updateNotice.value = "Latest teammate updates synced";
+    emit(
+      "syncComplete",
+      `${count} teammate ${count === 1 ? "update" : "updates"} synced.`,
+    );
+    window.clearTimeout(noticeTimer);
+    noticeTimer = window.setTimeout(() => {
+      updateNotice.value = "";
+    }, 2600);
+  } catch (error) {
+    emit(
+      "syncError",
+      error instanceof Error ? error.message : "Could not sync latest updates.",
+    );
+  }
 }
 function announceShortcut(event: KeyboardEvent, opportunity: Opportunity) {
   const target = event.target;
@@ -147,8 +189,11 @@ async function applyStageChange(opportunity: Opportunity, stage: DealStage) {
     highlightTimer = window.setTimeout(() => {
       if (highlightedId.value === opportunity.id) {
         highlightedId.value = null;
-        updateNotice.value = "";
       }
+    }, 2600);
+    window.clearTimeout(noticeTimer);
+    noticeTimer = window.setTimeout(() => {
+      updateNotice.value = "";
     }, 2600);
   }
 
@@ -194,7 +239,10 @@ async function retryOpportunity(opportunity: Opportunity) {
 }
 watch(rows, () => virtualizer.value.measure(), { flush: "post" });
 onMounted(() => virtualizer.value.measure());
-onUnmounted(() => window.clearTimeout(highlightTimer));
+onUnmounted(() => {
+  window.clearTimeout(highlightTimer);
+  window.clearTimeout(noticeTimer);
+});
 </script>
 
 <template>
@@ -207,6 +255,28 @@ onUnmounted(() => window.clearTimeout(highlightTimer));
       <span v-if="updateNotice" class="update-notice" role="status">{{
         updateNotice
       }}</span>
+      <div class="table-caption-actions">
+        <button
+          class="table-action-button"
+          type="button"
+          :disabled="activeRowIndex < 0"
+          @click="jumpToActiveRow"
+        >
+          Go to active row
+        </button>
+        <button
+          class="table-action-button sync-action"
+          type="button"
+          :disabled="!store.syncPending || store.syncing"
+          @click="syncLatest"
+        >
+          {{
+            store.syncing
+              ? "Syncing…"
+              : `Sync updates${store.pendingSyncCount ? ` · ${store.pendingSyncCount}` : ""}`
+          }}
+        </button>
+      </div>
       <span class="range-label"
         >Showing {{ visibleStart }}–{{ visibleEnd }} of
         {{ rows.length.toLocaleString("en-IN") }}</span
@@ -272,8 +342,12 @@ onUnmounted(() => window.clearTimeout(highlightTimer));
           :style="{ transform: `translateY(${virtualRow.start}px)` }"
           :class="{
             'row-highlighted': highlightedId === rows[virtualRow.index].id,
+            'row-active': activeRowId === rows[virtualRow.index].id,
+            'row-save-failed': ['error', 'conflict'].includes(statusLabel(rows[virtualRow.index].id)),
           }"
           tabindex="0"
+          @pointerdown="setActiveRow(rows[virtualRow.index].id)"
+          @focusin="setActiveRow(rows[virtualRow.index].id)"
           @keydown="announceShortcut($event, rows[virtualRow.index])"
         >
           <div class="cell select-cell" role="gridcell">
@@ -378,13 +452,20 @@ onUnmounted(() => window.clearTimeout(highlightTimer));
                 store.errors.get(rows[virtualRow.index].id) ??
                 statusLabel(rows[virtualRow.index].id)
               "
-              ><i></i>{{ statusLabel(rows[virtualRow.index].id) }}</span
+              ><i></i>{{
+                statusLabel(rows[virtualRow.index].id) === "error"
+                  ? "Save failed"
+                  : statusLabel(rows[virtualRow.index].id) === "conflict"
+                    ? "Update conflict"
+                    : statusLabel(rows[virtualRow.index].id)
+              }}</span
             ><button
               v-if="
-                statusLabel(rows[virtualRow.index].id) === 'error' ||
-                statusLabel(rows[virtualRow.index].id) === 'conflict'
+                statusLabel(rows[virtualRow.index].id) === 'error'
+                || statusLabel(rows[virtualRow.index].id) === 'conflict'
               "
               class="retry-link"
+              :aria-label="`Retry saving ${rows[virtualRow.index].companyName}`"
               @click="retryOpportunity(rows[virtualRow.index])"
             >
               Retry
@@ -404,7 +485,8 @@ onUnmounted(() => window.clearTimeout(highlightTimer));
     </div>
     <p class="table-footnote">
       Virtualized view · only visible rows are rendered. Use the checkboxes to
-      select rows, or select all matching results from the toolbar.
+      select rows, or select all matching results from the toolbar. Teammate
+      edits appear after you sync.
     </p>
   </div>
 </template>

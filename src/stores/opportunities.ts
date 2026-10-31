@@ -20,6 +20,7 @@ import { useSimulationStore } from "./simulation";
 export const useOpportunityStore = defineStore("opportunities", () => {
   const records = shallowRef<Opportunity[]>([]);
   const recordById = new Map<string, Opportunity>();
+  const serverVersions = new Map<string, number>();
   const saveStates = ref(new Map<string, SaveState>());
   const errors = ref(new Map<string, string>());
   const revisions = new Map<string, number>();
@@ -27,6 +28,9 @@ export const useOpportunityStore = defineStore("opportunities", () => {
   const retryStages = new Map<string, DealStage>();
   const loading = ref(false);
   const initialized = ref(false);
+  const syncing = ref(false);
+  const pendingSyncIds = ref(new Set<string>());
+  const pendingSyncGeneration = ref(0);
   const filters = ref<OpportunityFilters>({ ...DEFAULT_FILTERS });
   const sortField = ref<SortField>("updatedAt");
   const sortDirection = ref<"asc" | "desc">("desc");
@@ -77,6 +81,8 @@ export const useOpportunityStore = defineStore("opportunities", () => {
   const recordOwners = computed(() =>
     [...new Set(records.value.map((record) => record.owner))].sort(),
   );
+  const syncPending = computed(() => pendingSyncIds.value.size > 0);
+  const pendingSyncCount = computed(() => pendingSyncIds.value.size);
 
   async function initialize() {
     if (initialized.value || loading.value) return;
@@ -84,10 +90,37 @@ export const useOpportunityStore = defineStore("opportunities", () => {
     try {
       const loaded = await fakeApi.getOpportunities();
       records.value = loaded;
-      for (const record of loaded) recordById.set(record.id, record);
+      for (const record of loaded) {
+        recordById.set(record.id, record);
+        serverVersions.set(record.id, record.version);
+      }
       initialized.value = true;
     } finally {
       loading.value = false;
+    }
+  }
+
+  async function syncLatest() {
+    if (syncing.value) return;
+    syncing.value = true;
+    const generation = pendingSyncGeneration.value;
+    try {
+      const latest = await fakeApi.getOpportunities();
+      const localById = new Map(records.value.map((record) => [record.id, record]));
+      for (const record of latest)
+        serverVersions.set(record.id, record.version);
+      const merged = latest.map((record) =>
+        saveStates.value.get(record.id) === "saving"
+          ? (localById.get(record.id) ?? record)
+          : record,
+      );
+      records.value = merged;
+      recordById.clear();
+      for (const record of merged) recordById.set(record.id, record);
+      if (generation === pendingSyncGeneration.value)
+        pendingSyncIds.value = new Set();
+    } finally {
+      syncing.value = false;
     }
   }
 
@@ -100,7 +133,12 @@ export const useOpportunityStore = defineStore("opportunities", () => {
 
   async function changeStage(id: string, stage: DealStage) {
     const current = recordById.get(id);
-    if (!current || current.stage === stage) return;
+    if (
+      !current ||
+      current.stage === stage ||
+      saveStates.value.get(id) === "conflict"
+    )
+      return;
     retryStages.set(id, stage);
     const revision = (revisions.get(id) ?? 0) + 1;
     revisions.set(id, revision);
@@ -113,16 +151,22 @@ export const useOpportunityStore = defineStore("opportunities", () => {
     const request = previous
       .catch(() => undefined)
       .then(async () => {
-        // Each same-record write follows the previous response, so rapid edits use the newest known version.
+        if (saveStates.value.get(id) === "conflict")
+          throw new ApiError(
+            errors.value.get(id) ?? "Review the latest version before retrying.",
+            recordById.get(id),
+            true,
+          );
         const latest = await fakeApi.getOpportunity(id);
         return fakeApi.updateOpportunity({
           id,
-          expectedVersion: latest.version,
+          expectedVersion: serverVersions.get(id) ?? latest.version,
           changes: { stage },
         });
       });
     const queued = request
       .then((saved) => {
+        serverVersions.set(id, saved.version);
         if (revisions.get(id) === revision) {
           install(saved);
           saveStates.value.set(id, "saved");
@@ -134,7 +178,14 @@ export const useOpportunityStore = defineStore("opportunities", () => {
           reason instanceof ApiError
             ? reason
             : new ApiError("The save failed. Try again.");
-        if (revisions.get(id) !== revision) return;
+        if (revisions.get(id) !== revision) {
+          if (error.conflict) {
+            if (error.latest) install(error.latest);
+            saveStates.value.set(id, "conflict");
+            errors.value.set(id, error.message);
+          }
+          return;
+        }
         let authoritative = error.latest;
         if (!authoritative) {
           try {
@@ -143,9 +194,9 @@ export const useOpportunityStore = defineStore("opportunities", () => {
             authoritative = base;
           }
         }
-        if (authoritative) install(authoritative);
-        const state: SaveState = error.conflict ? "conflict" : "error";
-        saveStates.value.set(id, state);
+        install(authoritative);
+        serverVersions.set(id, authoritative.version);
+        saveStates.value.set(id, error.conflict ? "conflict" : "error");
         errors.value.set(id, error.message);
       })
       .finally(() => {
@@ -161,6 +212,7 @@ export const useOpportunityStore = defineStore("opportunities", () => {
     // Preserve the intended stage before refreshing authoritative state.
     try {
       const server = await fakeApi.getOpportunity(id);
+      serverVersions.set(id, server.version);
       if (server.stage === pendingStage) {
         install(server);
         saveStates.value.set(id, "saved");
@@ -169,6 +221,8 @@ export const useOpportunityStore = defineStore("opportunities", () => {
         return;
       }
       install(server);
+      saveStates.value.set(id, "saved");
+      errors.value.delete(id);
       await changeStage(id, pendingStage);
     } catch (error) {
       errors.value.set(
@@ -184,10 +238,8 @@ export const useOpportunityStore = defineStore("opportunities", () => {
     if (!id || !simulation.teammateUpdates) return;
     const stage = DEAL_STAGES[Math.floor(Math.random() * DEAL_STAGES.length)];
     const updated = await fakeApi.simulateTeammateUpdate(id, { stage });
-    if (!queues.has(id)) {
-      install(updated);
-      saveStates.value.set(id, "saved");
-    }
+    pendingSyncGeneration.value += 1;
+    pendingSyncIds.value = new Set([...pendingSyncIds.value, id]);
     return updated;
   }
 
@@ -198,6 +250,9 @@ export const useOpportunityStore = defineStore("opportunities", () => {
     const originalRecords = ids
       .map((id) => recordById.get(id))
       .filter((item): item is Opportunity => Boolean(item));
+    if (retryFailedOnly)
+      for (const record of originalRecords)
+        serverVersions.set(record.id, record.version);
     if (!retryFailedOnly)
       undoSnapshot.value = {
         ids,
@@ -227,7 +282,8 @@ export const useOpportunityStore = defineStore("opportunities", () => {
         results = await fakeApi.bulkUpdateOpportunities(
           chunk.map((record) => ({
             id: record.id,
-            expectedVersion: record.version,
+            expectedVersion:
+              serverVersions.get(record.id) ?? record.version,
             changes: { stage },
           })),
         );
@@ -256,6 +312,7 @@ export const useOpportunityStore = defineStore("opportunities", () => {
       for (const result of results) {
         if (result.record) {
           install(result.record);
+          serverVersions.set(result.id, result.record.version);
           saveStates.value.set(result.id, "saved");
           errors.value.delete(result.id);
           successful.add(result.id);
@@ -266,9 +323,12 @@ export const useOpportunityStore = defineStore("opportunities", () => {
           if (result.error?.latest) install(result.error.latest);
           else {
             try {
-              install(await fakeApi.getOpportunity(result.id));
+              const latest = await fakeApi.getOpportunity(result.id);
+              install(latest);
+              if (!result.error?.conflict)
+                serverVersions.set(result.id, latest.version);
             } catch {
-              /* keep the server message visible */
+              /* keep the last known record visible */
             }
           }
           saveStates.value.set(
@@ -343,6 +403,7 @@ export const useOpportunityStore = defineStore("opportunities", () => {
       for (const result of results) {
         if (result.record) {
           install(result.record);
+          serverVersions.set(result.id, result.record.version);
           restored += 1;
         } else {
           if (result.error?.latest) install(result.error.latest);
@@ -385,8 +446,12 @@ export const useOpportunityStore = defineStore("opportunities", () => {
     filteredIds,
     recordOwners,
     bulkProgress,
+    syncPending,
+    syncing,
+    pendingSyncCount,
     undoSnapshot,
     initialize,
+    syncLatest,
     changeStage,
     retry,
     simulateTeammate,
