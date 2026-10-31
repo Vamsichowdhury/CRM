@@ -97,6 +97,47 @@ describe("opportunity store updates", () => {
     expect(store.bulkProgress.failedIds).toEqual([]);
   });
 
+  it("lets a failed bulk row retry its original intended stage individually", async () => {
+    const store = useOpportunityStore();
+    const simulation = useSimulationStore();
+    await store.initialize();
+    useSelectionStore().selectAllMatching([fixture.id]);
+    simulation.failureRate = 1;
+    await nextTick();
+
+    await store.bulkChangeStage("Won");
+    expect(store.saveStates.get(fixture.id)).toBe("error");
+    expect(store.errors.get(fixture.id)).toMatch(/retry this row/i);
+
+    simulation.failureRate = 0;
+    await nextTick();
+    await store.retry(fixture.id);
+    expect(store.records[0]).toMatchObject({ stage: "Won", version: 2 });
+    expect(store.saveStates.get(fixture.id)).toBe("saved");
+  });
+
+  it("recalculates stage statistics after moving 10,000 lost deals to won", async () => {
+    const records = Array.from({ length: 10_000 }, (_, index) => ({
+      ...fixture,
+      id: `lost-${index}`,
+      stage: "Lost" as const,
+      dealValue: 10_000 + index,
+    }));
+    fakeApi.reset(records);
+    const store = useOpportunityStore();
+    await store.initialize();
+    useSelectionStore().selectAllMatching(records.map((record) => record.id));
+
+    await store.bulkChangeStage("Won");
+
+    expect(store.records).toHaveLength(10_000);
+    expect(store.stageCounts.Lost).toBe(0);
+    expect(store.stageCounts.Won).toBe(10_000);
+    expect(store.totalValue).toBe(
+      records.reduce((sum, record) => sum + record.dealValue, 0),
+    );
+  });
+
   it("skips undo when a teammate has changed a bulk-updated record", async () => {
     const store = useOpportunityStore();
     await store.initialize();
@@ -109,24 +150,32 @@ describe("opportunity store updates", () => {
     expect(store.records[0]).toMatchObject({ stage: "Lost", version: 3 });
   });
 
-  it("cancels between bulk batches and leaves undispatched rows unchanged", async () => {
-    const records = Array.from({ length: 501 }, (_, index) => ({
+  it("shows cancellation immediately and restores undispatched rows in a large selection", async () => {
+    const records = Array.from({ length: 10_000 }, (_, index) => ({
       ...fixture,
       id: `deal-${index}`,
     }));
     fakeApi.reset(records);
+    fakeApi.configure({ minDelayMs: 20, maxDelayMs: 20, failureRate: 0 });
     const store = useOpportunityStore();
     await store.initialize();
     useSelectionStore().selectAllMatching(records.map((record) => record.id));
 
     const operation = store.bulkChangeStage("Won");
+    expect(store.bulkProgress.running).toBe(true);
+    expect(store.bulkProgress.total).toBe(10_000);
     store.cancelBulk();
+    expect(store.bulkProgress.cancelling).toBe(true);
     await operation;
 
     expect(store.bulkProgress.cancelled).toBe(true);
     expect(store.bulkProgress.completed).toBe(500);
     expect(store.records[0].stage).toBe("Won");
+    expect(store.records[499].stage).toBe("Won");
     expect(store.records[500].stage).toBe("Contacted");
-    expect(useSelectionStore().selectionCount).toBe(501);
+    expect(store.records[9_999].stage).toBe("Contacted");
+    expect(useSelectionStore().selectionCount).toBe(10_000);
+    expect(store.bulkProgress.running).toBe(false);
+    expect(store.bulkProgress.cancelling).toBe(false);
   });
 });

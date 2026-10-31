@@ -37,6 +37,7 @@ export const useOpportunityStore = defineStore("opportunities", () => {
   const sortDirection = ref<"asc" | "desc">("desc");
   const bulkProgress = ref({
     running: false,
+    cancelling: false,
     completed: 0,
     total: 0,
     failedIds: [] as string[],
@@ -130,6 +131,15 @@ export const useOpportunityStore = defineStore("opportunities", () => {
     const index = records.value.findIndex((item) => item.id === record.id);
     if (index >= 0) records.value[index] = record;
     triggerRef(records);
+  }
+
+  function installMany(updatedRecords: Opportunity[]) {
+    if (!updatedRecords.length) return;
+    const updates = new Map(updatedRecords.map((record) => [record.id, record]));
+    for (const record of updatedRecords) recordById.set(record.id, record);
+    records.value = records.value.map(
+      (record) => updates.get(record.id) ?? record,
+    );
   }
 
   async function changeStage(id: string, stage: DealStage) {
@@ -258,6 +268,15 @@ export const useOpportunityStore = defineStore("opportunities", () => {
     const ids = retryFailedOnly
       ? [...bulkProgress.value.failedIds]
       : selection.selectedIdList();
+    bulkProgress.value = {
+      running: true,
+      cancelling: false,
+      completed: 0,
+      total: ids.length,
+      failedIds: [],
+      cancelled: false,
+    };
+    cancelBulkRequested.value = false;
     const originalRecords = ids
       .map((id) => recordById.get(id))
       .filter((item): item is Opportunity => Boolean(item));
@@ -270,26 +289,29 @@ export const useOpportunityStore = defineStore("opportunities", () => {
         previous: new Map(originalRecords.map((r) => [r.id, r.stage])),
         version: new Map(originalRecords.map((r) => [r.id, r.version])),
       };
+    const optimisticById = new Map<string, Opportunity>();
     for (const record of originalRecords) {
       // Keep the intended stage so the row-level Retry action can replay a
       // failed bulk item just like the bulk Retry failed action does.
       retryStages.set(record.id, stage);
-      install({ ...record, stage });
+      const optimistic = { ...record, stage };
+      optimisticById.set(record.id, optimistic);
+      recordById.set(record.id, optimistic);
       saveStates.value.set(record.id, "saving");
     }
-    bulkProgress.value = {
-      running: true,
-      completed: 0,
-      total: ids.length,
-      failedIds: [],
-      cancelled: false,
-    };
-    cancelBulkRequested.value = false;
+    if (optimisticById.size)
+      records.value = records.value.map(
+        (record) => optimisticById.get(record.id) ?? record,
+      );
     const failed = new Set<string>();
     const successful = new Set<string>();
     const chunkSize = 500;
     // Small bounded batches prevent a 50k selection from opening thousands of concurrent requests.
     for (let start = 0; start < originalRecords.length; start += chunkSize) {
+      if (cancelBulkRequested.value) {
+        bulkProgress.value.cancelled = true;
+        break;
+      }
       const chunk = originalRecords.slice(start, start + chunkSize);
       let results: Awaited<ReturnType<typeof fakeApi.bulkUpdateOpportunities>>;
       try {
@@ -304,18 +326,30 @@ export const useOpportunityStore = defineStore("opportunities", () => {
       } catch (reason) {
         const message =
           reason instanceof Error ? reason.message : "The bulk request failed.";
-        for (const record of originalRecords.slice(start)) {
-          try {
-            install(await fakeApi.getOpportunity(record.id));
-          } catch {
-            /* leave the best known local record visible */
+        const remaining = originalRecords.slice(start);
+        for (let offset = 0; offset < remaining.length; offset += chunkSize) {
+          const reconcileChunk = remaining.slice(offset, offset + chunkSize);
+          const latestRecords = await Promise.all(
+            reconcileChunk.map(async (record) => {
+              try {
+                return await fakeApi.getOpportunity(record.id);
+              } catch {
+                return recordById.get(record.id) ?? record;
+              }
+            }),
+          );
+          installMany(latestRecords);
+          for (const record of reconcileChunk) {
+            failed.add(record.id);
+            saveStates.value.set(record.id, "error");
+            errors.value.set(record.id, message);
           }
-          failed.add(record.id);
-          saveStates.value.set(record.id, "error");
-          errors.value.set(record.id, message);
+          if (offset + chunkSize < remaining.length)
+            await new Promise<void>((resolve) => setTimeout(resolve, 0));
         }
         bulkProgress.value = {
           running: true,
+          cancelling: false,
           completed: originalRecords.length,
           total: ids.length,
           failedIds: [...failed],
@@ -323,9 +357,10 @@ export const useOpportunityStore = defineStore("opportunities", () => {
         };
         break;
       }
+      const updatedRecords: Opportunity[] = [];
       for (const result of results) {
         if (result.record) {
-          install(result.record);
+          updatedRecords.push(result.record);
           serverVersions.set(result.id, result.record.version);
           saveStates.value.set(result.id, "saved");
           errors.value.delete(result.id);
@@ -335,11 +370,11 @@ export const useOpportunityStore = defineStore("opportunities", () => {
             undoSnapshot.value.version.set(result.id, result.record.version);
         } else {
           failed.add(result.id);
-          if (result.error?.latest) install(result.error.latest);
+          if (result.error?.latest) updatedRecords.push(result.error.latest);
           else {
             try {
               const latest = await fakeApi.getOpportunity(result.id);
-              install(latest);
+              updatedRecords.push(latest);
               if (!result.error?.conflict)
                 serverVersions.set(result.id, latest.version);
             } catch {
@@ -357,29 +392,43 @@ export const useOpportunityStore = defineStore("opportunities", () => {
           );
         }
       }
+      installMany(updatedRecords);
       bulkProgress.value = {
         running: true,
+        cancelling: cancelBulkRequested.value,
         completed: Math.min(start + chunk.length, originalRecords.length),
         total: ids.length,
         failedIds: [...failed],
         cancelled: false,
       };
       if (cancelBulkRequested.value) {
-        for (const record of originalRecords.slice(start + chunk.length)) {
-          try {
-            install(await fakeApi.getOpportunity(record.id));
+        const undispatched = originalRecords.slice(start + chunk.length);
+        for (let offset = 0; offset < undispatched.length; offset += chunkSize) {
+          const reconcileChunk = undispatched.slice(offset, offset + chunkSize);
+          const latestRecords = await Promise.all(
+            reconcileChunk.map(async (record) => {
+              try {
+                return await fakeApi.getOpportunity(record.id);
+              } catch {
+                return recordById.get(record.id) ?? record;
+              }
+            }),
+          );
+          installMany(latestRecords);
+          for (const record of reconcileChunk) {
             saveStates.value.set(record.id, "saved");
             errors.value.delete(record.id);
             retryStages.delete(record.id);
-          } catch {
-            /* keep the last known record if reconciliation is unavailable */
           }
+          if (offset + chunkSize < undispatched.length)
+            await new Promise<void>((resolve) => setTimeout(resolve, 0));
         }
         bulkProgress.value.cancelled = true;
         break;
       }
     }
     bulkProgress.value.running = false;
+    bulkProgress.value.cancelling = false;
     if (undoSnapshot.value)
       undoSnapshot.value.ids = retryFailedOnly
         ? [...new Set([...undoSnapshot.value.ids, ...successful])]
@@ -388,7 +437,9 @@ export const useOpportunityStore = defineStore("opportunities", () => {
   }
 
   function cancelBulk() {
-    if (bulkProgress.value.running) cancelBulkRequested.value = true;
+    if (!bulkProgress.value.running || bulkProgress.value.cancelling) return;
+    cancelBulkRequested.value = true;
+    bulkProgress.value.cancelling = true;
   }
 
   async function undoBulk() {

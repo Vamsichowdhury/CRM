@@ -88,6 +88,10 @@ After a successful single-row update, the moved row is highlighted briefly and k
 
 **Trade-off:** A batch is not interruptible after dispatch. The UI cancellation control stops before the next batch and reconciles undispatched records; a real API should define server-side cancellation semantics.
 
+**Large-selection handling:** Bulk optimistic changes and each server batch are installed into the local record array in one pass, instead of searching and triggering a reactive refresh for every individual row. This keeps the interface responsive for large selections and causes stage metrics to recompute from each reconciled batch. Cancel marks the operation as cancelling immediately, lets the in-flight batch finish, then restores undispatched rows in bounded chunks while yielding between chunks so the browser can paint and accept input.
+
+**Coverage:** Store tests cover a 10,000-record Lost → Won update and its stage counts/value, immediate progress and cancellation state, cancellation during an in-flight batch with untouched rows restored, retrying one failed bulk row, retrying failed IDs as a group, and version-safe undo after a teammate edit. Fake API tests cover stale-version conflicts and offline requests.
+
 ## Undo safety
 
 **Chosen:** Capture prior stages and post-bulk versions. Undo only writes a record if its version still matches that post-bulk version.

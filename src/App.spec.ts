@@ -54,7 +54,7 @@ describe("pipeline workspace", () => {
       await new Promise((resolve) => setTimeout(resolve, 1));
       await flushPromises();
       await nextTick();
-      expect(wrapper.get("h1").text()).toBe("Sales pipeline");
+      expect(wrapper.get("h1").text()).toBe("Sales Pipeline");
       expect(wrapper.find(".brand").text()).toContain("HighLevel");
       expect(wrapper.text()).toContain("1 results");
       expect(wrapper.find('[role="grid"]').exists()).toBe(true);
@@ -65,6 +65,60 @@ describe("pipeline workspace", () => {
         .trigger("click");
       expect(wrapper.get(".app-frame").attributes("data-theme")).toBe("dark");
       expect(window.localStorage.getItem("highlevel-theme")).toBe("dark");
+      wrapper.unmount();
+    } finally {
+      Element.prototype.getBoundingClientRect = originalRect;
+    }
+  });
+
+  it("shows bulk progress and cancelling feedback while a request is in flight", async () => {
+    const originalRect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = () => ({
+      width: 1200,
+      height: 500,
+      top: 0,
+      right: 1200,
+      bottom: 500,
+      left: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    const secondRecord: Opportunity = {
+      ...fixture,
+      id: "deal-2",
+      companyName: "Beacon Industries",
+      stage: "Lost",
+    };
+    fakeApi.reset([fixture, secondRecord]);
+    fakeApi.configure({ minDelayMs: 0, maxDelayMs: 0, failureRate: 0 });
+
+    try {
+      const wrapper = mount(App, { global: { plugins: [pinia] } });
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      await flushPromises();
+      await nextTick();
+      fakeApi.configure({ minDelayMs: 60, maxDelayMs: 60, failureRate: 0 });
+
+      await wrapper.get(".bulk-actions .subtle-button").trigger("click");
+      await wrapper.get(".bulk-stage select").setValue("Won");
+      await wrapper.get(".bulk-toolbar .primary").trigger("click");
+      await nextTick();
+
+      expect(wrapper.get(".bulk-toolbar .primary").text()).toContain(
+        "Updating…",
+      );
+      expect(wrapper.find(".progress-wrap").exists()).toBe(true);
+      await wrapper.get(".cancel-bulk").trigger("click");
+      expect(wrapper.get(".cancel-bulk").text()).toContain("Canceling…");
+      expect(wrapper.get(".progress-caption").text()).toContain(
+        "restoring pending opportunities",
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 70));
+      await flushPromises();
+      expect(wrapper.find(".progress-wrap").exists()).toBe(false);
+      expect(wrapper.text()).toContain("Canceled after 2 records");
       wrapper.unmount();
     } finally {
       Element.prototype.getBoundingClientRect = originalRect;

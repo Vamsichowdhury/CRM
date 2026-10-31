@@ -49,7 +49,7 @@ The dataset is still in memory, and a filter or sort scans up to 50,000 records.
 
 Individual changes are optimistic. A per-record local operation revision ensures that an old response cannot replace the latest local edit, and same-record requests are serialized. Each write includes the server version it expects; if another user changes that record before the write arrives, the server rejects it and returns the latest record for review and retry. Teammate edits remain on the simulated server until the user clicks **Sync updates**, so remote changes do not continuously reorder the table. The active row remains highlighted, and **Go to active row** restores it after a sync. Failed writes restore the latest server record when available and expose a prominent retry action.
 
-Bulk work is sent in batches of 500. A batch shares one simulated request delay, then each record is version-checked and may independently fail. Successful records remain saved when others fail. The toolbar reports progress and offers retry for failed IDs. Undo is best effort and only restores records whose versions still match the post-bulk version, so it cannot overwrite a newer edit.
+Bulk work is sent in batches of 500. A batch shares one simulated request delay, then each record is version-checked and may independently fail. Successful records remain saved when others fail. Progress appears as soon as work starts; a persistent alert offers retry for failed IDs and version-checked undo for successful IDs. Bulk changes are applied to the local array in bounded passes so summaries update without per-row reactive work. Cancel takes effect after the in-flight batch, then restores untouched rows in chunks while yielding to the browser so the screen stays responsive. Undo is best effort and only restores records whose versions still match the post-bulk version, so it cannot overwrite a newer edit.
 
 ## Simulation controls
 
@@ -88,6 +88,8 @@ npm run test       # Vitest
 npm run lint       # ESLint
 npm run build      # TypeScript project build and Vite production build
 ```
+
+The store test suite includes large-selection scenarios: moving 10,000 Lost deals to Won and checking counts/value, cancellation during an active batch and reconciliation of the remaining selection, immediate progress/cancelling state, individual retry after a bulk failure, retrying failed IDs as a group, and skipping undo when a teammate has changed a record.
 
 ## Known limitations and next steps
 

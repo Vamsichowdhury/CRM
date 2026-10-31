@@ -497,13 +497,23 @@ onUnmounted(() => {
           </div>
           <div v-if="busy" class="progress-wrap" role="status">
             <div class="progress-caption">
-              <span>Updating opportunities</span
+              <span>
+                {{
+                  store.bulkProgress.cancelling
+                    ? "Finishing this batch and restoring pending opportunities"
+                    : "Updating opportunities"
+                }}
+              </span
               ><strong
                 >{{ store.bulkProgress.completed.toLocaleString("en-IN") }} /
                 {{ store.bulkProgress.total.toLocaleString("en-IN") }} ·
                 {{ bulkProgressPercent }}%</strong
-              ><button class="cancel-bulk" @click="store.cancelBulk">
-                Cancel
+              ><button
+                class="cancel-bulk"
+                :disabled="store.bulkProgress.cancelling"
+                @click="store.cancelBulk()"
+              >
+                {{ store.bulkProgress.cancelling ? "Canceling…" : "Cancel" }}
               </button>
             </div>
             <div class="progress-track">

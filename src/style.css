@@ -805,6 +805,11 @@ a {
   color: #bb4d59;
   text-decoration: underline;
 }
+.cancel-bulk:disabled {
+  cursor: wait;
+  color: #a27c4e;
+  text-decoration: none;
+}
 .bulk-failure-summary {
   display: flex;
   align-items: center;
