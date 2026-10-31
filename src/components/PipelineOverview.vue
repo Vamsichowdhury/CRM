@@ -1,18 +1,23 @@
 <script setup lang="ts">
+// Pipeline metrics derive from the same cache as the table; they never rely on
+// hard-coded counts and therefore refresh after successful batch replacements.
 import { computed, ref, watch } from "vue";
 import { DEAL_STAGES, type DealStage } from "../types/opportunity";
 import { useOpportunityStore } from "../stores/opportunities";
 
 const store = useOpportunityStore();
+// This toggle is available only after an owner filter makes its meaning clear.
 const ownerStatsOnly = ref(false);
+// The stage board can represent all pipeline data or just the selected owner.
 const statsRecords = computed(() =>
   ownerStatsOnly.value && store.filters.owner
     ? store.records.filter((record) => record.owner === store.filters.owner)
     : store.records,
 );
 const statsStageCounts = computed(() => {
-  const counts = Object.fromEntries(DEAL_STAGES.map((stage) => [stage, 0])) as
-    Record<DealStage, number>;
+  const counts = Object.fromEntries(
+    DEAL_STAGES.map((stage) => [stage, 0]),
+  ) as Record<DealStage, number>;
   for (const record of statsRecords.value) counts[record.stage] += 1;
   return counts;
 });
@@ -27,12 +32,14 @@ const attentionCount = computed(() => {
     (record) => Date.parse(record.lastActivityAt) < cutoff,
   ).length;
 });
+// Avoid leaving the interface in owner-only mode after the owner filter is cleared.
 watch(
   () => store.filters.owner,
   (owner) => {
     if (!owner) ownerStatsOnly.value = false;
   },
 );
+/** Percentage helpers protect against divide-by-zero while data is loading. */
 const stageShare = (stage: DealStage) =>
   statsRecords.value.length
     ? Math.round(
@@ -49,6 +56,7 @@ const currency = (value: number) =>
     currency: "INR",
     maximumFractionDigits: 0,
   }).format(value);
+/** The stage board is also a quick filter; clicking the active stage clears it. */
 function choose(stage: DealStage) {
   store.setStageFilter(store.filters.stage === stage ? "" : stage);
 }
@@ -59,7 +67,9 @@ function choose(stage: DealStage) {
     <div v-if="store.filters.owner" class="owner-stats-toolbar">
       <span>
         <strong>{{ store.filters.owner }}</strong>
-        <small>{{ ownerStatsOnly ? "Owner statistics" : "Pipeline statistics" }}</small>
+        <small>{{
+          ownerStatsOnly ? "Owner statistics" : "Pipeline statistics"
+        }}</small>
       </span>
       <button
         class="owner-stats-toggle"
@@ -68,7 +78,9 @@ function choose(stage: DealStage) {
         :aria-checked="ownerStatsOnly"
         @click="ownerStatsOnly = !ownerStatsOnly"
       >
-        {{ ownerStatsOnly ? "Show all pipeline stats" : "Show owner stats only" }}
+        {{
+          ownerStatsOnly ? "Show all pipeline stats" : "Show owner stats only"
+        }}
       </button>
     </div>
     <div class="metric-grid">

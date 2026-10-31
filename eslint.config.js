@@ -1,3 +1,4 @@
+// Shared flat ESLint configuration for TypeScript source and Vue SFCs.
 import js from "@eslint/js";
 import globals from "globals";
 import tseslint from "typescript-eslint";

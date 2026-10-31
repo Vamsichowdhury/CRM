@@ -61,9 +61,10 @@ For partial bulk failures, select multiple opportunities, choose a stage, and ap
 
 ```text
 src/
-  components/       Pipeline summary, virtual table, simulation panel
+  components/       Focused header, filters, bulk actions, table row/caption, summaries, simulation, toasts
   services/         Seeded generator and authoritative fake API
-  stores/           Opportunities, selection, simulation
+  stores/           Pinia facades plus selection and simulation state
+    opportunities/  Record writes, synchronization, bulk actions, and shared action types
   types/            Opportunity and simulation contracts
   utils/            Filtering and sorting
   App.vue           Single-page workspace

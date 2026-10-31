@@ -1,5 +1,6 @@
 import { DEAL_STAGES, type Opportunity } from "../types/opportunity";
 
+/** Salespeople used consistently by generated records and the owner filter. */
 export const OWNERS = [
   "Aisha Khan",
   "Priya Sharma",
@@ -10,6 +11,7 @@ export const OWNERS = [
   "Maya Nair",
 ];
 
+// Fictional business customers; numeric suffixes make the 50k-company list feel less repetitive.
 const companies = [
   "Indigo Networks",
   "BluePeak Logistics",
@@ -33,6 +35,7 @@ const companies = [
   "Willow Creek Architects",
 ];
 
+// Quantity and price bounds keep generated deal values plausible for bulk office furniture orders.
 const products = [
   {
     name: "Office chairs",
@@ -71,6 +74,10 @@ const products = [
   },
 ];
 
+/**
+ * A tiny deterministic pseudo-random generator. A fixed seed makes screenshots,
+ * tests, and assignment review repeatable without storing 50,000 records.
+ */
 function seeded(seed: number) {
   let state = seed >>> 0;
   return () => {
@@ -84,6 +91,7 @@ export function generateOpportunities(
   seed = 42,
   now = new Date("2026-10-31T00:00:00.000Z"),
 ): Opportunity[] {
+  // Build once in a preallocated array to avoid repeated allocations for the demo dataset.
   const random = seeded(seed);
   const records = new Array<Opportunity>(count);
   for (let index = 0; index < count; index += 1) {
@@ -120,6 +128,7 @@ export function generateOpportunities(
     };
   }
 
+  // Keep the brief's example available at a predictable position for reviewers.
   if (count > 0) {
     records[0] = {
       ...records[0],

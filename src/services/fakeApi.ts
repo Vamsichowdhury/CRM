@@ -5,6 +5,10 @@ import type {
 } from "../types/opportunity";
 import { generateOpportunities } from "./opportunityGenerator";
 
+/**
+ * API-shaped error. Conflicts include the authoritative record so callers can
+ * replace optimistic data without issuing another request.
+ */
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -16,8 +20,13 @@ export class ApiError extends Error {
   }
 }
 
+// Never leak server-owned objects; callers must not be able to mutate the fake database.
 const clone = (record: Opportunity): Opportunity => ({ ...record });
 
+/**
+ * In-memory authoritative server used by the UI and tests. It models latency,
+ * offline mode, random saves, and version checks without requiring a backend.
+ */
 export class FakeApi {
   private server = new Map<string, Opportunity>();
   private config: SimulationConfig = {
@@ -44,9 +53,11 @@ export class FakeApi {
       this.server.set(record.id, clone(record));
   }
 
+  /** Merges the simulation panel's latest controls into server behaviour. */
   configure(config: Partial<SimulationConfig>) {
     this.config = { ...this.config, ...config };
   }
+  /** Test helper that replaces all authoritative data with a known fixture. */
   reset(records: Opportunity[]) {
     this.server.clear();
     for (const record of records) this.server.set(record.id, clone(record));
@@ -55,6 +66,7 @@ export class FakeApi {
     return this.server.size;
   }
 
+  /** Applies network delay before a request and rejects all requests when offline. */
   private async simulate() {
     const { minDelayMs, maxDelayMs, offline } = this.config;
     await this.wait(
@@ -65,11 +77,12 @@ export class FakeApi {
       throw new ApiError("You are offline. Reconnect and retry this change.");
   }
 
+  /** Applies the configured independent random save failure. */
   private simulateSaveFailure(message: string) {
-    if (this.random() < this.config.failureRate)
-      throw new ApiError(message);
+    if (this.random() < this.config.failureRate) throw new ApiError(message);
   }
 
+  /** Fetches a full snapshot; production code would page this server-side. */
   async getOpportunities(): Promise<Opportunity[]> {
     await this.simulate();
     return Array.from(this.server.values(), clone);
@@ -81,6 +94,10 @@ export class FakeApi {
     return clone(record);
   }
 
+  /**
+   * Applies a single update only when its version matches. This prevents a
+   * stale browser from silently replacing a teammate's newer edit.
+   */
   async updateOpportunity(request: UpdateRequest): Promise<Opportunity> {
     await this.simulate();
     this.simulateSaveFailure(
@@ -105,6 +122,10 @@ export class FakeApi {
     return clone(updated);
   }
 
+  /**
+   * Processes one dispatched batch while preserving per-record outcomes. A
+   * failure in one item does not roll back successful items in the same batch.
+   */
   async bulkUpdateOpportunities(requests: UpdateRequest[]) {
     await this.simulate();
     return requests.map((request) => {
@@ -142,6 +163,7 @@ export class FakeApi {
     });
   }
 
+  /** Changes server data without updating the local client cache, creating a sync/conflict scenario. */
   async simulateTeammateUpdate(
     id: string,
     changes?: Partial<Pick<Opportunity, "stage" | "owner" | "dealValue">>,

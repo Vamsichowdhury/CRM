@@ -4,6 +4,10 @@ import type {
   SortField,
 } from "../types/opportunity";
 
+/**
+ * Applies all toolbar filters in one pass. `now` is injectable so stale-record
+ * behaviour can be tested without depending on the machine clock.
+ */
 export function filterOpportunities(
   records: Opportunity[],
   filters: OpportunityFilters,
@@ -30,6 +34,10 @@ export function filterOpportunities(
   });
 }
 
+/**
+ * Returns a copy because sorting the backing cache would unexpectedly change
+ * the order used by selection and focus restoration.
+ */
 export function sortOpportunities(
   records: Opportunity[],
   field: SortField,

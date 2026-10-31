@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 import { useSelectionStore } from "./selection";
 
+// These cases verify selection independently of the virtual table's mounted DOM rows.
 describe("selection across virtual rows", () => {
   beforeEach(() => setActivePinia(createPinia()));
   it("selects rendered IDs and toggles individual rows", () => {
@@ -13,6 +14,7 @@ describe("selection across virtual rows", () => {
     expect(selection.isSelected("a")).toBe(false);
   });
   it("selects every matching ID, supports exclusions, and preserves the snapshot", () => {
+    // Snapshot mode is what makes Select all matching safe across later scrolling/filtering.
     const selection = useSelectionStore();
     selection.selectAllMatching(["a", "b", "c"]);
     selection.toggle("b");

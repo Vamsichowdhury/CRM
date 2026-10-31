@@ -1,3 +1,5 @@
+/* Global visual tokens. Feature styles below use shared variables so light and
+   dark themes keep the same visual hierarchy. */
 :root {
   font-family:
     Inter,
@@ -56,9 +58,14 @@ a {
 .app-frame {
   min-height: 100vh;
   background:
-    radial-gradient(ellipse at 50% -180px, rgba(80, 111, 211, 0.09), transparent 62%),
+    radial-gradient(
+      ellipse at 50% -180px,
+      rgba(80, 111, 211, 0.09),
+      transparent 62%
+    ),
     #f5f6f8;
 }
+/* Persistent brand header and workspace identity. */
 .app-header {
   height: 62px;
   background: #fff;
@@ -255,6 +262,7 @@ a {
   color: #677388;
   font-size: 11px;
 }
+/* Derived pipeline metrics and stage board. */
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -373,6 +381,7 @@ a {
   background: #4c68cf;
   color: #fff;
 }
+/* Each stage tile doubles as a filter and exposes its percentage meter. */
 .stage-strip {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -511,6 +520,7 @@ a {
 .stage-filter.tone-6.active:after {
   background: #df6670;
 }
+/* Main table workspace: filters, bulk actions, progress, and virtualized rows. */
 .workspace-card {
   background: #fff;
   border: 1px solid var(--line);
@@ -725,6 +735,7 @@ a {
 .help-link:hover {
   text-decoration: underline;
 }
+/* Bulk controls remain visually distinct when a non-empty selection is active. */
 .bulk-toolbar {
   height: 49px;
   display: flex;
@@ -872,6 +883,7 @@ a {
 .undo-failed-button:hover:not(:disabled) {
   background: #fff8f6;
 }
+/* Fixed-height virtual table supports 50,000 records without mounting all rows. */
 .table-shell {
   width: 100%;
 }
@@ -1027,7 +1039,9 @@ a {
 }
 .data-row.row-save-failed {
   background: #fff4f5;
-  box-shadow: inset 4px 0 #d65361, inset 0 0 0 1px #f0c4c9;
+  box-shadow:
+    inset 4px 0 #d65361,
+    inset 0 0 0 1px #f0c4c9;
 }
 @keyframes opportunity-update-fade {
   0% {
@@ -1289,6 +1303,7 @@ a {
   gap: 12px;
   margin-top: 12px;
 }
+/* Collapsible failure/concurrency controls and keyboard help beneath the table. */
 .simulation-panel,
 .keyboard-help {
   background: #fff;
@@ -1529,6 +1544,7 @@ a {
   padding: 0 5px;
   color: #c5cad2;
 }
+/* Bottom-right outcomes carry success, informational, error, and retry states. */
 .toast-message {
   position: fixed;
   z-index: 1000;
@@ -1675,6 +1691,7 @@ a {
   opacity: 0;
   transform: translateY(8px);
 }
+/* Keep controls compact on narrower laptop screens. */
 @media (max-width: 1180px) {
   .main-content {
     padding-left: 24px;
@@ -1718,6 +1735,7 @@ a {
   border-color: #cbd2df;
 }
 
+/* Theme overrides preserve the same semantic colours and contrast in dark mode. */
 .app-frame[data-theme="dark"] {
   color-scheme: dark;
   --ink: #e2e8f0;
@@ -1730,7 +1748,11 @@ a {
   --shadow: 0 3px 12px rgba(0, 0, 0, 0.18);
   color: #d9e1eb;
   background:
-    radial-gradient(ellipse at 50% -180px, rgba(89, 117, 202, 0.12), transparent 62%),
+    radial-gradient(
+      ellipse at 50% -180px,
+      rgba(89, 117, 202, 0.12),
+      transparent 62%
+    ),
     #121922;
 }
 .app-frame[data-theme="dark"] .app-header,
@@ -2028,13 +2050,16 @@ a {
 .app-frame[data-theme="dark"] .data-row:focus {
   background: #222e3c;
 }
-.app-frame[data-theme="dark"] .data-row.row-active:not(.row-highlighted):not(.row-save-failed) {
+.app-frame[data-theme="dark"]
+  .data-row.row-active:not(.row-highlighted):not(.row-save-failed) {
   background: #25314a;
   box-shadow: inset 3px 0 #8299f1;
 }
 .app-frame[data-theme="dark"] .data-row.row-save-failed {
   background: #3b272e;
-  box-shadow: inset 4px 0 #ef737e, inset 0 0 0 1px #70454c;
+  box-shadow:
+    inset 4px 0 #ef737e,
+    inset 0 0 0 1px #70454c;
 }
 .app-frame[data-theme="dark"] .data-row.row-highlighted {
   --update-highlight: #243d31;

@@ -1,17 +1,22 @@
 <script setup lang="ts">
+// This component renders only the visible table rows, while selection and save
+// state live in Pinia so they survive virtualization and reordering.
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useVirtualizer } from "@tanstack/vue-virtual";
 import {
-  DEAL_STAGES,
   type DealStage,
   type Opportunity,
   type SortField,
 } from "../types/opportunity";
+import OpportunityTableCaption from "./OpportunityTableCaption.vue";
+import OpportunityTableColumnHeader from "./OpportunityTableColumnHeader.vue";
+import OpportunityTableRow from "./OpportunityTableRow.vue";
 import { useOpportunityStore } from "../stores/opportunities";
 import { useSelectionStore } from "../stores/selection";
 import { adjacentStage } from "../utils/stageNavigation";
 import { nextReviewOpportunityId } from "../utils/nextReviewOpportunity";
 
+// App.vue owns global bottom-right notifications; the table emits outcomes to it.
 const emit = defineEmits<{
   stageSaved: [message: string];
   saveError: [message: string];
@@ -21,6 +26,7 @@ const emit = defineEmits<{
 const store = useOpportunityStore();
 const selection = useSelectionStore();
 const scrollElement = ref<HTMLElement | null>(null);
+// A successful row flashes green at its new sorted position; active state is persistent.
 const highlightedId = ref<string | null>(null);
 const focusAnnouncement = ref("");
 const updateNotice = ref("");
@@ -28,6 +34,7 @@ const activeRowId = computed(() => store.activeOpportunityId);
 let highlightTimer: number | undefined;
 let noticeTimer: number | undefined;
 const rows = computed(() => store.visibleRecords);
+// Fixed row height keeps virtual positioning predictable across a 50k-record dataset.
 const virtualizer = useVirtualizer(
   computed(() => ({
     count: rows.value.length,
@@ -39,6 +46,7 @@ const virtualizer = useVirtualizer(
 );
 const virtualRows = computed(() => virtualizer.value.getVirtualItems());
 const totalSize = computed(() => virtualizer.value.getTotalSize());
+// The header checkbox intentionally targets the mounted viewport, not every result.
 const renderedIds = computed(() =>
   virtualRows.value.map((row) => rows.value[row.index].id),
 );
@@ -47,16 +55,6 @@ const allRenderedSelected = computed(
     renderedIds.value.length > 0 &&
     renderedIds.value.every((id) => selection.isSelected(id)),
 );
-const currencies = new Intl.NumberFormat("en-IN", {
-  style: "currency",
-  currency: "INR",
-  maximumFractionDigits: 0,
-});
-const dateFormat = new Intl.DateTimeFormat("en-IN", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-});
 const visibleStart = computed(() =>
   rows.value.length ? (virtualRows.value[0]?.index ?? 0) + 1 : 0,
 );
@@ -67,22 +65,23 @@ const activeRowIndex = computed(() =>
     : -1,
 );
 
+/** Applies the header checkbox to only rows currently rendered by the virtualizer. */
 function toggleRendered() {
   selection.selectVisible(renderedIds.value, !allRenderedSelected.value);
 }
-function setActiveRow(id: string) {
-  store.setActiveOpportunity(id);
-}
+/** Restores the user's review position after a sort or a manual teammate sync. */
 function jumpToActiveRow() {
   const id = activeRowId.value;
   if (!id || activeRowIndex.value < 0) return;
   virtualizer.value.scrollToIndex(activeRowIndex.value, { align: "auto" });
+  // Wait for virtual DOM placement before asking the newly mounted row to focus.
   window.requestAnimationFrame(() =>
     window.requestAnimationFrame(() =>
       document.getElementById(`opportunity-row-${id}`)?.focus(),
     ),
   );
 }
+/** Fetches staged teammate changes only when the user asks, avoiding surprise row jumps. */
 async function syncLatest() {
   try {
     const count = store.pendingSyncCount;
@@ -103,6 +102,7 @@ async function syncLatest() {
     );
   }
 }
+/** Handles row-level keyboard navigation without stealing input/select controls. */
 function announceShortcut(event: KeyboardEvent, opportunity: Opportunity) {
   const target = event.target;
   const focusedStageArrow =
@@ -112,7 +112,11 @@ function announceShortcut(event: KeyboardEvent, opportunity: Opportunity) {
     (target === event.currentTarget || focusedStageArrow)
   ) {
     event.preventDefault();
-    moveStage(opportunity, event.key === "ArrowLeft" ? "previous" : "next");
+    const stage = adjacentStage(
+      opportunity.stage,
+      event.key === "ArrowLeft" ? "previous" : "next",
+    );
+    if (stage) void applyStageChange(opportunity, stage);
     return;
   }
   if (
@@ -143,28 +147,10 @@ function announceShortcut(event: KeyboardEvent, opportunity: Opportunity) {
 function sort(field: SortField) {
   store.toggleSort(field);
 }
-function sortLabel(field: SortField, label: string) {
-  return `${label}${store.sortField === field ? (store.sortDirection === "asc" ? " ↑" : " ↓") : ""}`;
-}
-function statusLabel(id: string) {
-  return store.saveStates.get(id) ?? "saved";
-}
-function needsAttention(opportunity: Opportunity) {
-  return Date.parse(opportunity.lastActivityAt) < Date.now() - 30 * 86_400_000;
-}
-function stageArrowLabel(
-  opportunity: Opportunity,
-  direction: "previous" | "next",
-) {
-  const target = adjacentStage(opportunity.stage, direction);
-  return target
-    ? `Move ${opportunity.companyName} to ${target}`
-    : `No ${direction} stage from ${opportunity.stage}`;
-}
-function moveStage(opportunity: Opportunity, direction: "previous" | "next") {
-  const target = adjacentStage(opportunity.stage, direction);
-  if (target) void applyStageChange(opportunity, target);
-}
+/**
+ * Saves a row then keeps the review workflow moving forward from the order
+ * before the save, even if the saved row has moved due to the current sort.
+ */
 async function applyStageChange(opportunity: Opportunity, stage: DealStage) {
   if (opportunity.stage === stage) return;
   const previousVisibleIds = rows.value.map((row) => row.id);
@@ -197,6 +183,8 @@ async function applyStageChange(opportunity: Opportunity, stage: DealStage) {
     }, 2600);
   }
 
+  // Capture the former next row before the sort changes, then fall back to the
+  // nearest visible index when a filter makes that row disappear.
   const nextReviewId = nextReviewOpportunityId(
     previousVisibleIds,
     opportunity.id,
@@ -237,6 +225,7 @@ async function retryOpportunity(opportunity: Opportunity) {
   if (store.saveStates.get(opportunity.id) !== "saved")
     reportSaveError(opportunity);
 }
+// Re-measure after Vue has rendered a filtered/sorted replacement row list.
 watch(rows, () => virtualizer.value.measure(), { flush: "post" });
 onMounted(() => virtualizer.value.measure());
 onUnmounted(() => {
@@ -247,41 +236,18 @@ onUnmounted(() => {
 
 <template>
   <div class="table-shell">
-    <div class="table-caption">
-      <div>
-        <h2>Opportunities</h2>
-        <span>{{ rows.length.toLocaleString("en-IN") }} results</span>
-      </div>
-      <span v-if="updateNotice" class="update-notice" role="status">{{
-        updateNotice
-      }}</span>
-      <div class="table-caption-actions">
-        <button
-          class="table-action-button"
-          type="button"
-          :disabled="activeRowIndex < 0"
-          @click="jumpToActiveRow"
-        >
-          Go to active row
-        </button>
-        <button
-          class="table-action-button sync-action"
-          type="button"
-          :disabled="!store.syncPending || store.syncing"
-          @click="syncLatest"
-        >
-          {{
-            store.syncing
-              ? "Syncing…"
-              : `Sync updates${store.pendingSyncCount ? ` · ${store.pendingSyncCount}` : ""}`
-          }}
-        </button>
-      </div>
-      <span class="range-label"
-        >Showing {{ visibleStart }}–{{ visibleEnd }} of
-        {{ rows.length.toLocaleString("en-IN") }}</span
-      >
-    </div>
+    <OpportunityTableCaption
+      :result-count="rows.length"
+      :visible-start="visibleStart"
+      :visible-end="visibleEnd"
+      :update-notice="updateNotice"
+      :active-row-available="activeRowIndex >= 0"
+      :sync-pending="store.syncPending"
+      :syncing="store.syncing"
+      :pending-sync-count="store.pendingSyncCount"
+      @jump-to-active-row="jumpToActiveRow"
+      @sync-latest="syncLatest"
+    />
     <div
       ref="scrollElement"
       class="table-scroll"
@@ -289,189 +255,26 @@ onUnmounted(() => {
       aria-label="Opportunities"
       :aria-rowcount="rows.length + 1"
     >
-      <div class="table-header table-row" role="row">
-        <div class="cell select-cell" role="columnheader">
-          <input
-            aria-label="Select rendered rows"
-            type="checkbox"
-            :checked="allRenderedSelected"
-            @change="toggleRendered"
-          />
-        </div>
-        <button
-          class="cell sortable company-cell"
-          role="columnheader"
-          @click="sort('companyName')"
-        >
-          {{ sortLabel("companyName", "Customer company") }}
-        </button>
-        <div class="cell opportunity-cell" role="columnheader">Furniture order</div>
-        <button
-          class="cell sortable value-cell"
-          role="columnheader"
-          @click="sort('dealValue')"
-        >
-          {{ sortLabel("dealValue", "Deal value") }}
-        </button>
-        <div class="cell owner-cell" role="columnheader">Owner</div>
-        <div class="cell stage-cell" role="columnheader">Stage</div>
-        <button
-          class="cell sortable activity-cell"
-          role="columnheader"
-          @click="sort('lastActivityAt')"
-        >
-          {{ sortLabel("lastActivityAt", "Last activity") }}
-        </button>
-        <button
-          class="cell sortable updated-cell"
-          role="columnheader"
-          @click="sort('updatedAt')"
-        >
-          {{ sortLabel("updatedAt", "Updated") }}
-        </button>
-        <div class="cell status-cell" role="columnheader">Sync</div>
-      </div>
+      <OpportunityTableColumnHeader
+        :all-rendered-selected="allRenderedSelected"
+        :sort-field="store.sortField"
+        :sort-direction="store.sortDirection"
+        @sort="sort"
+        @toggle-visible-selection="toggleRendered"
+      />
       <div class="virtual-spacer" :style="{ height: `${totalSize}px` }">
-        <div
+        <OpportunityTableRow
           v-for="virtualRow in virtualRows"
-          :id="`opportunity-row-${rows[virtualRow.index].id}`"
           :key="rows[virtualRow.index].id"
-          class="table-row data-row"
-          role="row"
-          :aria-rowindex="virtualRow.index + 2"
-          :style="{ transform: `translateY(${virtualRow.start}px)` }"
-          :class="{
-            'row-highlighted': highlightedId === rows[virtualRow.index].id,
-            'row-active': activeRowId === rows[virtualRow.index].id,
-            'row-save-failed': ['error', 'conflict'].includes(statusLabel(rows[virtualRow.index].id)),
-          }"
-          tabindex="0"
-          @pointerdown="setActiveRow(rows[virtualRow.index].id)"
-          @focusin="setActiveRow(rows[virtualRow.index].id)"
-          @keydown="announceShortcut($event, rows[virtualRow.index])"
-        >
-          <div class="cell select-cell" role="gridcell">
-            <input
-              :aria-label="`Select ${rows[virtualRow.index].companyName}`"
-              type="checkbox"
-              :checked="selection.isSelected(rows[virtualRow.index].id)"
-              @change="selection.toggle(rows[virtualRow.index].id)"
-            />
-          </div>
-          <div class="cell company-cell company-name" role="gridcell">
-            {{ rows[virtualRow.index].companyName }}
-          </div>
-          <div class="cell opportunity-cell" role="gridcell">
-            <span class="opportunity-name">
-              {{ rows[virtualRow.index].opportunityName }} ·
-              {{ rows[virtualRow.index].licenceCount }} units
-            </span>
-          </div>
-          <div class="cell value-cell" role="gridcell">
-            {{ currencies.format(rows[virtualRow.index].dealValue) }}
-          </div>
-          <div class="cell owner-cell" role="gridcell">
-            <span class="avatar">{{
-              rows[virtualRow.index].owner
-                .split(" ")
-                .map((part) => part[0])
-                .join("")
-            }}</span
-            >{{ rows[virtualRow.index].owner }}
-          </div>
-          <div class="cell stage-cell" role="gridcell">
-            <div class="stage-control">
-              <button
-                class="stage-step"
-                type="button"
-                :disabled="
-                  !adjacentStage(rows[virtualRow.index].stage, 'previous')
-                "
-                :aria-label="
-                  stageArrowLabel(rows[virtualRow.index], 'previous')
-                "
-                :title="stageArrowLabel(rows[virtualRow.index], 'previous')"
-                @click="moveStage(rows[virtualRow.index], 'previous')"
-              >
-                <span aria-hidden="true">←</span>
-              </button>
-              <select
-                class="stage-select"
-                :class="`stage-${DEAL_STAGES.indexOf(rows[virtualRow.index].stage)}`"
-                :aria-label="`Stage for ${rows[virtualRow.index].companyName}`"
-                :value="rows[virtualRow.index].stage"
-                @change="
-                  applyStageChange(
-                    rows[virtualRow.index],
-                    ($event.target as HTMLSelectElement)
-                      .value as (typeof rows)[number]['stage'],
-                  )
-                "
-              >
-                <option v-for="stage in DEAL_STAGES" :key="stage">
-                  {{ stage }}
-                </option>
-              </select>
-              <button
-                class="stage-step"
-                type="button"
-                :disabled="!adjacentStage(rows[virtualRow.index].stage, 'next')"
-                :aria-label="stageArrowLabel(rows[virtualRow.index], 'next')"
-                :title="stageArrowLabel(rows[virtualRow.index], 'next')"
-                @click="moveStage(rows[virtualRow.index], 'next')"
-              >
-                <span aria-hidden="true">→</span>
-              </button>
-            </div>
-          </div>
-          <div
-            class="cell activity-cell muted-cell"
-            :class="{
-              'needs-attention': needsAttention(rows[virtualRow.index]),
-            }"
-            :title="
-              needsAttention(rows[virtualRow.index])
-                ? 'No activity in 30+ days'
-                : undefined
-            "
-            role="gridcell"
-          >
-            {{ dateFormat.format(new Date(rows[virtualRow.index].lastActivityAt)) }}
-          </div>
-          <div class="cell updated-cell muted-cell" role="gridcell">
-            {{ dateFormat.format(new Date(rows[virtualRow.index].updatedAt)) }}
-          </div>
-          <div class="cell status-cell" role="gridcell">
-            <span
-              class="sync-status"
-              :class="`sync-${statusLabel(rows[virtualRow.index].id)}`"
-              aria-live="polite"
-              aria-atomic="true"
-              :title="store.errors.get(rows[virtualRow.index].id)"
-              :aria-label="
-                store.errors.get(rows[virtualRow.index].id) ??
-                statusLabel(rows[virtualRow.index].id)
-              "
-              ><i></i>{{
-                statusLabel(rows[virtualRow.index].id) === "error"
-                  ? "Save failed"
-                  : statusLabel(rows[virtualRow.index].id) === "conflict"
-                    ? "Update conflict"
-                    : statusLabel(rows[virtualRow.index].id)
-              }}</span
-            ><button
-              v-if="
-                statusLabel(rows[virtualRow.index].id) === 'error'
-                || statusLabel(rows[virtualRow.index].id) === 'conflict'
-              "
-              class="retry-link"
-              :aria-label="`Retry saving ${rows[virtualRow.index].companyName}`"
-              @click="retryOpportunity(rows[virtualRow.index])"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
+          :opportunity="rows[virtualRow.index]"
+          :row-index="virtualRow.index"
+          :start="virtualRow.start"
+          :active="activeRowId === rows[virtualRow.index].id"
+          :highlighted="highlightedId === rows[virtualRow.index].id"
+          @stage-change="applyStageChange"
+          @row-keydown="announceShortcut"
+          @retry="retryOpportunity"
+        />
       </div>
       <span class="sr-only" aria-live="polite">{{ focusAnnouncement }}</span>
       <div v-if="rows.length === 0" class="empty-state">

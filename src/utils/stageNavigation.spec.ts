@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { adjacentStage } from "./stageNavigation";
 
+// Arrow-button navigation uses the main progression while the stage dropdown
+// remains the route to terminal Lost.
 describe("quick stage navigation", () => {
   it("moves through the active pipeline and into Won", () => {
     expect(adjacentStage("New Lead", "next")).toBe("Contacted");

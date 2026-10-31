@@ -7,6 +7,7 @@ import { useSimulationStore } from "./simulation";
 import { useSelectionStore } from "./selection";
 import type { Opportunity } from "../types/opportunity";
 
+// One predictable record covers write semantics; large arrays below cover batch paths.
 const fixture: Opportunity = {
   id: "deal-1",
   companyName: "Acme",
@@ -22,6 +23,7 @@ const fixture: Opportunity = {
 };
 
 describe("opportunity store updates", () => {
+  // Reset the global fake API and its reactive simulation controls for each case.
   beforeEach(async () => {
     setActivePinia(createPinia());
     fakeApi.reset([fixture]);
@@ -50,6 +52,7 @@ describe("opportunity store updates", () => {
   });
 
   it("serializes rapid edits and keeps the latest requested stage", async () => {
+    // Represents a rep making another stage choice before the first save completes.
     const store = useOpportunityStore();
     await store.initialize();
     const first = store.changeStage(fixture.id, "Demo Done");
@@ -117,6 +120,7 @@ describe("opportunity store updates", () => {
   });
 
   it("recalculates stage statistics after moving 10,000 lost deals to won", async () => {
+    // Guards the high-volume metrics scenario reviewers commonly inspect.
     const records = Array.from({ length: 10_000 }, (_, index) => ({
       ...fixture,
       id: `lost-${index}`,
@@ -151,6 +155,7 @@ describe("opportunity store updates", () => {
   });
 
   it("shows cancellation immediately and restores undispatched rows in a large selection", async () => {
+    // More than 500 records proves work stops between, rather than inside, API batches.
     const records = Array.from({ length: 10_000 }, (_, index) => ({
       ...fixture,
       id: `deal-${index}`,

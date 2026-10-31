@@ -1,26 +1,38 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+// The app shell coordinates global filters, notifications, theme preference,
+// and bulk-action controls. Record persistence remains in the opportunity store.
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import BulkActionBar from "./components/BulkActionBar.vue";
+import KeyboardHelp from "./components/KeyboardHelp.vue";
+import OpportunityFilterToolbar from "./components/OpportunityFilterToolbar.vue";
 import PipelineOverview from "./components/PipelineOverview.vue";
 import OpportunityTable from "./components/OpportunityTable.vue";
 import SimulationPanel from "./components/SimulationPanel.vue";
-import { OWNERS } from "./services/opportunityGenerator";
-import { DEAL_STAGES, type DealStage } from "./types/opportunity";
+import ToastNotification from "./components/ToastNotification.vue";
+import WorkspaceHeader from "./components/WorkspaceHeader.vue";
+import type { DealStage } from "./types/opportunity";
 import { useOpportunityStore } from "./stores/opportunities";
 import { useSelectionStore } from "./stores/selection";
 
 const store = useOpportunityStore();
 const selection = useSelectionStore();
-const searchInput = ref<HTMLInputElement | null>(null);
-const ownerFilterRoot = ref<HTMLElement | null>(null);
-const ownerFilterTrigger = ref<HTMLButtonElement | null>(null);
-const ownerSearchInput = ref<HTMLInputElement | null>(null);
-const ownerMenuOpen = ref(false);
-const ownerSearch = ref("");
-const selectedStage = ref<DealStage | "">("");
+const filterToolbar = ref<{
+  focusSearch: () => void;
+  blurSearch: () => void;
+  isSearchFocused: () => boolean;
+} | null>(null);
+// Retains the target stage so the persistent failure panel can retry only failed IDs.
 const failedBulkStage = ref<DealStage | null>(null);
 const bulkBatchTotal = ref(0);
 const loadError = ref("");
 type Theme = "light" | "dark";
+interface ToastNotice {
+  message: string;
+  kind: "success" | "error" | "info";
+  action?: string;
+  run?: () => void;
+}
+/** Reads a user override; null means follow the operating system preference. */
 function storedTheme(): Theme | null {
   try {
     const saved = window.localStorage.getItem("highlevel-theme");
@@ -36,28 +48,11 @@ const systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
 const theme = ref<Theme>(
   savedTheme ?? (systemThemeQuery?.matches ? "dark" : "light"),
 );
-const toast = ref<{
-  message: string;
-  kind: "success" | "error" | "info";
-  action?: string;
-  run?: () => void;
-} | null>(null);
+// A single global toast supports both transient results and an optional recovery action.
+const toast = ref<ToastNotice | null>(null);
 let toastTimer: number | undefined;
-const selectedCount = computed(() => selection.selectionCount);
 const busy = computed(() => store.bulkProgress.running);
-const ownerChoices = computed(() => {
-  const search = ownerSearch.value.trim().toLocaleLowerCase();
-  return ["All owners", ...OWNERS].filter((owner) =>
-    owner.toLocaleLowerCase().includes(search),
-  );
-});
-const bulkProgressPercent = computed(() =>
-  store.bulkProgress.total
-    ? Math.round(
-        (store.bulkProgress.completed / store.bulkProgress.total) * 100,
-      )
-    : 0,
-);
+// Apply immediately so there is no light-theme flash; persist only explicit choices.
 watch(
   theme,
   (value) => {
@@ -73,6 +68,7 @@ watch(
   { immediate: true },
 );
 
+/** Replaces the prior notification and resets its auto-dismiss timer. */
 function notify(
   message: string,
   kind: "success" | "error" | "info" = "info",
@@ -85,14 +81,21 @@ function notify(
     toast.value = null;
   }, 6000);
 }
-async function bulkUpdate(retryFailedOnly = false) {
-  const targetStage = retryFailedOnly
-    ? failedBulkStage.value
-    : selectedStage.value;
-  if (!targetStage || (!retryFailedOnly && !selectedCount.value)) return;
-  const count = retryFailedOnly
-    ? store.bulkProgress.failedIds.length
-    : selectedCount.value;
+function runToastAction() {
+  const action = toast.value?.run;
+  toast.value = null;
+  action?.();
+}
+/**
+ * Starts a normal selected-ID bulk update or replays just the persistent list
+ * of failures. The store owns per-record results and version-safe undo data.
+ */
+async function bulkUpdate(
+  targetStage: DealStage,
+  count: number,
+  retryFailedOnly = false,
+) {
+  if (!targetStage || (!retryFailedOnly && !count)) return;
   if (!retryFailedOnly) bulkBatchTotal.value = count;
   try {
     await store.bulkChangeStage(targetStage, retryFailedOnly);
@@ -127,7 +130,6 @@ async function bulkUpdate(retryFailedOnly = false) {
         "Retry failed",
         retryFailedBulk,
       );
-    if (!store.bulkProgress.cancelled) selectedStage.value = "";
   } catch (error) {
     notify(
       error instanceof Error ? error.message : "Bulk update failed.",
@@ -135,9 +137,14 @@ async function bulkUpdate(retryFailedOnly = false) {
     );
   }
 }
+/** Retries only IDs that failed the last bulk request, preserving saved records. */
 async function retryFailedBulk() {
   if (!failedBulkStage.value) return;
-  await bulkUpdate(true);
+  await bulkUpdate(
+    failedBulkStage.value,
+    store.bulkProgress.failedIds.length,
+    true,
+  );
   const failed = store.bulkProgress.failedIds.length;
   notify(
     failed
@@ -146,6 +153,7 @@ async function retryFailedBulk() {
     failed ? "error" : "success",
   );
 }
+/** Reports the safe-undo result; changed records are intentionally skipped. */
 async function undoBulkChanges() {
   const result = await store.undoBulk();
   notify(
@@ -160,60 +168,8 @@ function selectAllMatching() {
     "info",
   );
 }
-async function toggleOwnerMenu() {
-  ownerMenuOpen.value = !ownerMenuOpen.value;
-  if (!ownerMenuOpen.value) return;
-  ownerSearch.value = "";
-  await nextTick();
-  ownerSearchInput.value?.focus();
-}
-function chooseOwner(owner: string) {
-  store.filters.owner = owner === "All owners" ? "" : owner;
-  ownerMenuOpen.value = false;
-  ownerSearch.value = "";
-  ownerFilterTrigger.value?.focus();
-}
-function onOwnerFilterPointerDown(event: PointerEvent) {
-  if (!ownerFilterRoot.value?.contains(event.target as Node))
-    ownerMenuOpen.value = false;
-}
-function onOwnerSearchKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape") {
-    event.preventDefault();
-    ownerMenuOpen.value = false;
-    ownerFilterTrigger.value?.focus();
-  } else if (event.key === "ArrowDown") {
-    event.preventDefault();
-    ownerFilterRoot.value
-      ?.querySelector<HTMLElement>('[role="option"]:not([aria-disabled="true"])')
-      ?.focus();
-  } else if (event.key === "Enter" && ownerChoices.value.length === 1) {
-    event.preventDefault();
-    chooseOwner(ownerChoices.value[0]);
-  }
-}
-function onOwnerOptionKeydown(event: KeyboardEvent, owner: string) {
-  if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    chooseOwner(owner);
-  } else if (event.key === "Escape") {
-    event.preventDefault();
-    ownerMenuOpen.value = false;
-    ownerFilterTrigger.value?.focus();
-  } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-    event.preventDefault();
-    const options = Array.from(
-      ownerFilterRoot.value?.querySelectorAll<HTMLElement>(
-        '[role="option"]:not([aria-disabled="true"])',
-      ) ?? [],
-    );
-    const nextIndex =
-      options.indexOf(event.currentTarget as HTMLElement) +
-      (event.key === "ArrowDown" ? 1 : -1);
-    options[nextIndex]?.focus();
-  }
-}
 function onTeammateUpdated(companyName: string) {
+  // Tell the user that the visible table intentionally remains stale until they sync.
   notify(
     `A teammate edited ${companyName}. Try changing this deal before syncing to test conflict protection.`,
     "info",
@@ -222,6 +178,7 @@ function onTeammateUpdated(companyName: string) {
 function onSimulationError(message: string) {
   notify(message, "error");
 }
+/** Global shortcuts apply only when focus is not already inside a form control. */
 function onShortcut(event: KeyboardEvent) {
   if (event.defaultPrevented) return;
   if (
@@ -230,21 +187,25 @@ function onShortcut(event: KeyboardEvent) {
     !(event.target instanceof HTMLSelectElement)
   ) {
     event.preventDefault();
-    searchInput.value?.focus();
+    filterToolbar.value?.focusSearch();
   }
   if (event.key === "Escape") {
-    if (document.activeElement === searchInput.value) searchInput.value?.blur();
+    if (filterToolbar.value?.isSearchFocused())
+      filterToolbar.value.blurSearch();
     else selection.clear();
   }
 }
+/** An explicit toggle stops following operating-system theme changes. */
 function toggleTheme() {
   hasSavedThemePreference.value = true;
   theme.value = theme.value === "dark" ? "light" : "dark";
 }
 function onSystemThemeChange(event: MediaQueryListEvent) {
+  // Follow the system only until the user picks a theme in this workspace.
   if (!hasSavedThemePreference.value)
     theme.value = event.matches ? "dark" : "light";
 }
+/** Keeps the initial loading error recoverable from the main page. */
 async function loadPipeline() {
   loadError.value = "";
   try {
@@ -256,15 +217,15 @@ async function loadPipeline() {
   }
 }
 onMounted(() => {
+  // Global listeners support keyboard workflows and close the custom owner popover.
   window.addEventListener("keydown", onShortcut);
-  document.addEventListener("pointerdown", onOwnerFilterPointerDown);
   if (!hasSavedThemePreference.value)
     systemThemeQuery?.addEventListener("change", onSystemThemeChange);
   void loadPipeline();
 });
 onUnmounted(() => {
+  // Prevent listeners and a pending toast timer from outliving the page shell.
   window.removeEventListener("keydown", onShortcut);
-  document.removeEventListener("pointerdown", onOwnerFilterPointerDown);
   systemThemeQuery?.removeEventListener("change", onSystemThemeChange);
   window.clearTimeout(toastTimer);
 });
@@ -272,44 +233,7 @@ onUnmounted(() => {
 
 <template>
   <div class="app-frame" :data-theme="theme">
-    <header class="app-header">
-      <a class="brand" href="#" aria-label="FurniCraft on HighLevel">
-        <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32" fill="none">
-            <path
-              d="M10 5v9h12V5M8 14h16v5H8zM10 19v8m12-8v8M8 27h16"
-              stroke="currentColor"
-              stroke-width="2.2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </span>
-        <span class="brand-copy">
-          <strong>FurniCraft</strong>
-          <small>Commercial Furniture Solutions</small>
-        </span>
-        <span class="brand-platform">Powered by <strong>HighLevel</strong></span>
-      </a>
-      <div class="header-divider"></div>
-      <div class="workspace-title">
-        <span>Commercial sales</span><span class="crumb-sep">/</span
-        ><strong>Pipeline</strong>
-      </div>
-      <div class="header-right">
-        <span class="workspace-pill"><i></i> B2B customers</span>
-        <button
-          class="theme-toggle"
-          type="button"
-          :aria-label="`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`"
-          :title="`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`"
-          @click="toggleTheme"
-        >
-          <span aria-hidden="true">{{ theme === "dark" ? "☼" : "☾" }}</span>
-        </button>
-        <div class="user-avatar" aria-label="FurniCraft sales team">FC</div>
-      </div>
-    </header>
+    <WorkspaceHeader :theme="theme" @toggle-theme="toggleTheme" />
 
     <main class="main-content">
       <div class="page-heading">
@@ -347,223 +271,18 @@ onUnmounted(() => {
         <PipelineOverview />
 
         <section class="workspace-card" aria-label="Opportunity management">
-          <div class="toolbar-top">
-            <div class="search-wrap">
-              <span class="search-icon">⌕</span
-              ><input
-                ref="searchInput"
-                v-model="store.filters.search"
-                type="search"
-                placeholder="Search customer companies or furniture products…"
-                aria-label="Search customer companies or furniture products"
-              /><kbd>/</kbd>
-            </div>
-            <div ref="ownerFilterRoot" class="owner-filter">
-              <button
-                ref="ownerFilterTrigger"
-                class="owner-filter-trigger filter-select"
-                type="button"
-                aria-label="Filter by owner"
-                aria-haspopup="listbox"
-                :aria-controls="ownerMenuOpen ? 'owner-filter-options' : undefined"
-                :aria-expanded="ownerMenuOpen"
-                @click="toggleOwnerMenu"
-              >
-                <span>{{ store.filters.owner || "All owners" }}</span>
-                <span class="owner-chevron" aria-hidden="true">⌄</span>
-              </button>
-              <div v-if="ownerMenuOpen" class="owner-menu">
-                <input
-                  ref="ownerSearchInput"
-                  v-model="ownerSearch"
-                  type="search"
-                  role="searchbox"
-                  aria-label="Search owners"
-                  placeholder="Search owners…"
-                  @keydown="onOwnerSearchKeydown"
-                />
-                <div
-                  id="owner-filter-options"
-                  class="owner-options"
-                  role="listbox"
-                  aria-label="Sales owners"
-                >
-                  <button
-                    v-for="owner in ownerChoices"
-                    :key="owner"
-                    class="owner-option"
-                    type="button"
-                    role="option"
-                    :aria-selected="
-                      owner === 'All owners'
-                        ? !store.filters.owner
-                        : store.filters.owner === owner
-                    "
-                    @click="chooseOwner(owner)"
-                    @keydown="onOwnerOptionKeydown($event, owner)"
-                  >
-                    {{ owner }}
-                  </button>
-                  <span v-if="!ownerChoices.length" class="owner-empty">
-                    No owners match “{{ ownerSearch }}”
-                  </span>
-                </div>
-              </div>
-            </div>
-            <label class="filter-select stage-filter-select"
-              ><span class="sr-only">Filter by stage</span
-              ><select v-model="store.filters.stage">
-                <option value="">All stages</option>
-                <option v-for="stage in DEAL_STAGES" :key="stage">
-                  {{ stage }}
-                </option>
-              </select></label
-            >
-            <label class="filter-select amount-filter"
-              ><span class="sr-only">Minimum deal value</span
-              ><input
-                v-model.number="store.filters.minValue"
-                type="number"
-                min="0"
-                placeholder="Min ₹"
-            /></label>
-            <label class="filter-select amount-filter"
-              ><span class="sr-only">Maximum deal value</span
-              ><input
-                v-model.number="store.filters.maxValue"
-                type="number"
-                min="0"
-                placeholder="Max ₹"
-            /></label>
-            <label class="stale-toggle"
-              ><input v-model="store.filters.staleOnly" type="checkbox" /><span
-                >Stale 30+ days</span
-              ></label
-            >
-            <button
-              v-if="
-                store.filters.search ||
-                store.filters.stage ||
-                store.filters.owner ||
-                store.filters.minValue ||
-                store.filters.maxValue ||
-                store.filters.staleOnly
-              "
-              class="clear-button"
-              @click="store.clearFilters"
-            >
-              Clear
-            </button>
-          </div>
+          <OpportunityFilterToolbar ref="filterToolbar" />
 
-          <div class="bulk-toolbar" :class="{ active: selectedCount > 0 }">
-            <div class="bulk-left">
-              <template v-if="selectedCount"
-                ><strong>{{ selectedCount.toLocaleString("en-IN") }}</strong>
-                selected
-                <button class="text-button" @click="selection.clear">
-                  Deselect all
-                </button></template
-              ><template v-else
-                ><span
-                  >Select a few rows or choose every result.</span
-                ></template
-              >
-            </div>
-            <div class="bulk-actions">
-              <button
-                class="button subtle-button"
-                :disabled="!store.visibleRecords.length || busy"
-                @click="selectAllMatching"
-              >
-                Select all
-                {{ store.visibleRecords.length.toLocaleString("en-IN") }}
-                matching</button
-              ><label class="filter-select bulk-stage"
-                ><select v-model="selectedStage" aria-label="Choose bulk stage">
-                  <option value="">Change stage to…</option>
-                  <option v-for="stage in DEAL_STAGES" :key="stage">
-                    {{ stage }}
-                  </option>
-                </select></label
-              ><button
-                class="button primary"
-                :disabled="!selectedCount || !selectedStage || busy"
-                @click="bulkUpdate()"
-              >
-                {{ busy ? "Updating…" : "Apply to selected" }}
-              </button>
-            </div>
-          </div>
-          <div v-if="busy" class="progress-wrap" role="status">
-            <div class="progress-caption">
-              <span>
-                {{
-                  store.bulkProgress.cancelling
-                    ? "Finishing this batch and restoring pending opportunities"
-                    : "Updating opportunities"
-                }}
-              </span
-              ><strong
-                >{{ store.bulkProgress.completed.toLocaleString("en-IN") }} /
-                {{ store.bulkProgress.total.toLocaleString("en-IN") }} ·
-                {{ bulkProgressPercent }}%</strong
-              ><button
-                class="cancel-bulk"
-                :disabled="store.bulkProgress.cancelling"
-                @click="store.cancelBulk()"
-              >
-                {{ store.bulkProgress.cancelling ? "Canceling…" : "Cancel" }}
-              </button>
-            </div>
-            <div class="progress-track">
-              <i
-                :style="{
-                  width: `${store.bulkProgress.total ? (store.bulkProgress.completed / store.bulkProgress.total) * 100 : 0}%`,
-                }"
-              ></i>
-            </div>
-          </div>
-          <div
-            v-if="!busy && store.bulkProgress.failedIds.length"
-            class="bulk-failure-summary"
-            role="alert"
-          >
-            <span class="bulk-failure-icon" aria-hidden="true">!</span>
-            <div class="bulk-failure-copy">
-              <strong>
-                {{ store.bulkProgress.failedIds.length.toLocaleString("en-IN") }}
-                of {{ bulkBatchTotal.toLocaleString("en-IN") }} updates need attention
-              </strong>
-              <span>
-                <template v-if="store.undoSnapshot?.ids.length">
-                  Successful updates are saved. Retry only failed records or
-                  undo saved changes where the server version still matches.
-                </template>
-                <template v-else>
-                  Successful changes were undone. Retry only the remaining failed
-                  records when ready.
-                </template>
-              </span>
-            </div>
-            <div class="bulk-failure-actions">
-              <button
-                class="button retry-failed-button"
-                :disabled="busy || !failedBulkStage"
-                @click="retryFailedBulk"
-              >
-                Retry {{ store.bulkProgress.failedIds.length.toLocaleString("en-IN") }} failed
-              </button>
-              <button
-                v-if="store.undoSnapshot?.ids.length"
-                class="button undo-failed-button"
-                :disabled="busy"
-                @click="undoBulkChanges"
-              >
-                Undo successful updates
-              </button>
-            </div>
-          </div>
+          <BulkActionBar
+            :busy="busy"
+            :failed-stage="failedBulkStage"
+            :batch-total="bulkBatchTotal"
+            @select-all="selectAllMatching"
+            @apply="bulkUpdate"
+            @retry-failed="retryFailedBulk"
+            @undo-successful="undoBulkChanges"
+            @cancel="store.cancelBulk()"
+          />
           <OpportunityTable
             @stage-saved="notify($event, 'success')"
             @save-error="notify($event, 'error')"
@@ -578,27 +297,14 @@ onUnmounted(() => {
             @teammate-updated="onTeammateUpdated"
             @simulation-error="onSimulationError"
           />
-          <div class="keyboard-help">
-            <span class="help-icon">⌨</span
-            ><span
-              ><strong>Keyboard shortcuts</strong
-              ><small
-                ><kbd>/</kbd> Search &nbsp; <kbd>↑ ↓</kbd> Move rows &nbsp;
-                <kbd>← →</kbd> Change stage &nbsp; <kbd>Space</kbd> Select row
-                &nbsp; <kbd>Esc</kbd> Clear selection</small
-              ></span
-            ><button
-              class="help-link"
-              @click="
-                notify(
-                  'Focus a row and press Space to select it. Escape clears your current selection.',
-                  'info',
-                )
-              "
-            >
-              Help
-            </button>
-          </div>
+          <KeyboardHelp
+            @show-help="
+              notify(
+                'Focus a row and press Space to select it. Escape clears your current selection.',
+                'info',
+              )
+            "
+          />
         </div>
       </template>
       <footer class="page-footer">
@@ -609,32 +315,10 @@ onUnmounted(() => {
       </footer>
     </main>
 
-    <Transition name="toast"
-      ><div
-        v-if="toast"
-        class="toast-message"
-        :class="`toast-${toast.kind}`"
-        :role="toast.kind === 'error' ? 'alert' : 'status'"
-        :aria-live="toast.kind === 'error' ? 'assertive' : 'polite'"
-      >
-        <span class="toast-dot"></span><span>{{ toast.message }}</span
-        ><button
-          v-if="toast.action"
-          class="toast-action"
-          @click="
-            toast.run?.();
-            toast = null;
-          "
-        >
-          {{ toast.action }}</button
-        ><button
-          class="toast-close"
-          aria-label="Dismiss notification"
-          @click="toast = null"
-        >
-          ×
-        </button>
-      </div></Transition
-    >
+    <ToastNotification
+      :notice="toast"
+      @action="runToastAction"
+      @dismiss="toast = null"
+    />
   </div>
 </template>

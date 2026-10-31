@@ -104,13 +104,13 @@ After a successful single-row update, the moved row is highlighted briefly and k
 
 ## Pinia store organization
 
-**Chosen:** Three stores: opportunities, selection, and simulation.
+**Chosen:** Three Pinia stores: opportunities, selection, and simulation. Opportunity actions are split into record persistence, synchronization, and bulk-action modules under `src/stores/opportunities/`; UI sections are separate components.
 
-**Why:** Each store has one clear responsibility while business logic remains testable outside the table component.
+**Why:** Each store has one clear responsibility, and the opportunity store remains a small shared-state facade. The action modules and focused UI components make concurrency, filtering, bulk recovery, and table navigation easier to read and test independently.
 
-**Considered:** One giant store or many tiny stores. One store mixes UI selection and simulation settings; many stores add navigation cost without useful boundaries.
+**Considered:** One giant store or many tiny Pinia stores. One store mixes UI selection and simulation settings; extra state stores add navigation cost without useful boundaries.
 
-**Trade-off:** The opportunity store coordinates the selection and simulation stores for bulk and teammate actions. That coupling is narrow and visible.
+**Trade-off:** The opportunity action modules coordinate with selection and simulation state for bulk and teammate actions. That coupling remains in the store composition point and is explicit.
 
 ## Testing strategy
 

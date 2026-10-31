@@ -7,6 +7,8 @@ import { fakeApi } from "./services/fakeApi";
 import type { Opportunity } from "./types/opportunity";
 import { useSimulationStore } from "./stores/simulation";
 
+// A minimal fixture keeps component tests focused on workspace behaviour rather
+// than the complete generated dataset.
 const fixture: Opportunity = {
   id: "deal-1",
   companyName: "Acme Corporation",
@@ -24,6 +26,7 @@ const fixture: Opportunity = {
 describe("pipeline workspace", () => {
   let pinia: ReturnType<typeof createPinia>;
 
+  // Reset Pinia and the singleton fake server because the test process is shared.
   beforeEach(async () => {
     pinia = createPinia();
     setActivePinia(pinia);
@@ -37,6 +40,7 @@ describe("pipeline workspace", () => {
   });
 
   it("loads the opportunity into the accessible virtualized workspace", async () => {
+    // TanStack Virtual needs a measurable scrolling container in jsdom.
     const originalRect = Element.prototype.getBoundingClientRect;
     Element.prototype.getBoundingClientRect = () => ({
       width: 1200,
@@ -72,6 +76,7 @@ describe("pipeline workspace", () => {
   });
 
   it("shows bulk progress and cancelling feedback while a request is in flight", async () => {
+    // A nonzero delay creates a reliable window for asserting the intermediate UI state.
     const originalRect = Element.prototype.getBoundingClientRect;
     Element.prototype.getBoundingClientRect = () => ({
       width: 1200,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { FakeApi } from "./fakeApi";
 import type { Opportunity } from "../types/opportunity";
 
+// Injected randomness and waiting keep server rules deterministic in unit tests.
 const record: Opportunity = {
   id: "deal-1",
   companyName: "Acme",
@@ -15,6 +16,7 @@ const record: Opportunity = {
   updatedAt: "2026-01-01T00:00:00Z",
   version: 1,
 };
+/** Creates an isolated server so one test's version increments cannot leak into another. */
 const createApi = () =>
   new FakeApi({
     records: [record],

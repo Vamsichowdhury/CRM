@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateOpportunities } from "./opportunityGenerator";
 
+// A seeded dataset must be repeatable so UI behaviour and review data stay stable.
 describe("seeded opportunity generator", () => {
   it("is deterministic and generates the requested count", () => {
     const first = generateOpportunities(20, 123);
@@ -11,6 +12,7 @@ describe("seeded opportunity generator", () => {
   });
 
   it("supports the full assignment dataset size", () => {
+    // Guards against an accidental default-size or allocation regression.
     expect(generateOpportunities(50_000, 42)).toHaveLength(50_000);
   });
 });

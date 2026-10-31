@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { nextReviewOpportunityId } from "./nextReviewOpportunity";
 
+// Focus should follow a rep's review sequence, not the possibly reordered saved row.
 describe("review focus after an opportunity update", () => {
   it("advances to the next opportunity in the original review order", () => {
     expect(nextReviewOpportunityId(["1", "2", "3", "4", "5", "6"], "5")).toBe(
