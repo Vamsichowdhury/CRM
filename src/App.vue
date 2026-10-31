@@ -506,7 +506,10 @@ onUnmounted(() => {
               ></i>
             </div>
           </div>
-          <OpportunityTable />
+          <OpportunityTable
+            @stage-saved="notify($event, 'success')"
+            @save-error="notify($event, 'error')"
+          />
         </section>
 
         <div class="below-grid">
@@ -547,8 +550,8 @@ onUnmounted(() => {
         v-if="toast"
         class="toast-message"
         :class="`toast-${toast.kind}`"
-        role="status"
-        aria-live="polite"
+        :role="toast.kind === 'error' ? 'alert' : 'status'"
+        :aria-live="toast.kind === 'error' ? 'assertive' : 'polite'"
       >
         <span class="toast-dot"></span><span>{{ toast.message }}</span
         ><button

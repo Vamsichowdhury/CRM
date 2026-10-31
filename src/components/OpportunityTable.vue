@@ -12,6 +12,10 @@ import { useSelectionStore } from "../stores/selection";
 import { adjacentStage } from "../utils/stageNavigation";
 import { nextReviewOpportunityId } from "../utils/nextReviewOpportunity";
 
+const emit = defineEmits<{
+  stageSaved: [message: string];
+  saveError: [message: string];
+}>();
 const store = useOpportunityStore();
 const selection = useSelectionStore();
 const scrollElement = ref<HTMLElement | null>(null);
@@ -126,7 +130,11 @@ async function applyStageChange(opportunity: Opportunity, stage: DealStage) {
     (row) => row.id === opportunity.id,
   );
   await store.changeStage(opportunity.id, stage);
-  if (store.saveStates.get(opportunity.id) !== "saved") return;
+  if (store.saveStates.get(opportunity.id) !== "saved") {
+    reportSaveError(opportunity);
+    return;
+  }
+  emit("stageSaved", `${opportunity.companyName} moved to ${stage}.`);
 
   const updatedIndex = rows.value.findIndex((row) => row.id === opportunity.id);
   if (updatedIndex >= 0) {
@@ -174,6 +182,15 @@ async function applyStageChange(opportunity: Opportunity, stage: DealStage) {
       document.getElementById(`opportunity-row-${focusId}`)?.focus(),
     ),
   );
+}
+function reportSaveError(opportunity: Opportunity) {
+  const message = store.errors.get(opportunity.id);
+  if (message) emit("saveError", `${opportunity.companyName}: ${message}`);
+}
+async function retryOpportunity(opportunity: Opportunity) {
+  await store.retry(opportunity.id);
+  if (store.saveStates.get(opportunity.id) !== "saved")
+    reportSaveError(opportunity);
 }
 watch(rows, () => virtualizer.value.measure(), { flush: "post" });
 onMounted(() => virtualizer.value.measure());
@@ -368,7 +385,7 @@ onUnmounted(() => window.clearTimeout(highlightTimer));
                 statusLabel(rows[virtualRow.index].id) === 'conflict'
               "
               class="retry-link"
-              @click="store.retry(rows[virtualRow.index].id)"
+              @click="retryOpportunity(rows[virtualRow.index])"
             >
               Retry
             </button>
