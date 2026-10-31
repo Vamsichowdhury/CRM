@@ -1,0 +1,400 @@
+import { computed, ref, shallowRef, triggerRef } from "vue";
+import { defineStore } from "pinia";
+import { fakeApi, ApiError } from "../services/fakeApi";
+import {
+  DEAL_STAGES,
+  DEFAULT_FILTERS,
+  type DealStage,
+  type Opportunity,
+  type OpportunityFilters,
+  type SaveState,
+  type SortField,
+} from "../types/opportunity";
+import {
+  filterOpportunities,
+  sortOpportunities,
+} from "../utils/opportunityFilters";
+import { useSelectionStore } from "./selection";
+import { useSimulationStore } from "./simulation";
+
+export const useOpportunityStore = defineStore("opportunities", () => {
+  const records = shallowRef<Opportunity[]>([]);
+  const recordById = new Map<string, Opportunity>();
+  const saveStates = ref(new Map<string, SaveState>());
+  const errors = ref(new Map<string, string>());
+  const revisions = new Map<string, number>();
+  const queues = new Map<string, Promise<void>>();
+  const retryStages = new Map<string, DealStage>();
+  const loading = ref(false);
+  const initialized = ref(false);
+  const filters = ref<OpportunityFilters>({ ...DEFAULT_FILTERS });
+  const sortField = ref<SortField>("updatedAt");
+  const sortDirection = ref<"asc" | "desc">("desc");
+  const bulkProgress = ref({
+    running: false,
+    completed: 0,
+    total: 0,
+    failedIds: [] as string[],
+    cancelled: false,
+  });
+  const cancelBulkRequested = ref(false);
+  const undoSnapshot = ref<{
+    ids: string[];
+    previous: Map<string, DealStage>;
+    version: Map<string, number>;
+  } | null>(null);
+  const selection = useSelectionStore();
+  const simulation = useSimulationStore();
+
+  const visibleRecords = computed(() =>
+    sortOpportunities(
+      filterOpportunities(records.value, filters.value),
+      sortField.value,
+      sortDirection.value,
+    ),
+  );
+  const stageCounts = computed(() => {
+    const counts = Object.fromEntries(
+      DEAL_STAGES.map((stage) => [stage, 0]),
+    ) as Record<DealStage, number>;
+    for (const record of records.value) counts[record.stage] += 1;
+    return counts;
+  });
+  const totalValue = computed(() =>
+    records.value.reduce((sum, record) => sum + record.dealValue, 0),
+  );
+  const attentionCount = computed(() => {
+    const cutoff = Date.now() - 30 * 86_400_000;
+    return records.value.reduce(
+      (count, record) =>
+        count + (Date.parse(record.lastActivityAt) < cutoff ? 1 : 0),
+      0,
+    );
+  });
+  const filteredIds = computed(() =>
+    visibleRecords.value.map((record) => record.id),
+  );
+  const recordOwners = computed(() =>
+    [...new Set(records.value.map((record) => record.owner))].sort(),
+  );
+
+  async function initialize() {
+    if (initialized.value || loading.value) return;
+    loading.value = true;
+    try {
+      const loaded = await fakeApi.getOpportunities();
+      records.value = loaded;
+      for (const record of loaded) recordById.set(record.id, record);
+      initialized.value = true;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  function install(record: Opportunity) {
+    recordById.set(record.id, record);
+    const index = records.value.findIndex((item) => item.id === record.id);
+    if (index >= 0) records.value[index] = record;
+    triggerRef(records);
+  }
+
+  async function changeStage(id: string, stage: DealStage) {
+    const current = recordById.get(id);
+    if (!current || current.stage === stage) return;
+    retryStages.set(id, stage);
+    const revision = (revisions.get(id) ?? 0) + 1;
+    revisions.set(id, revision);
+    const base = current;
+    const optimistic = { ...current, stage };
+    install(optimistic);
+    saveStates.value.set(id, "saving");
+    errors.value.delete(id);
+    const previous = queues.get(id) ?? Promise.resolve();
+    const request = previous
+      .catch(() => undefined)
+      .then(async () => {
+        // Each same-record write follows the previous response, so rapid edits use the newest known version.
+        const latest = await fakeApi.getOpportunity(id);
+        return fakeApi.updateOpportunity({
+          id,
+          expectedVersion: latest.version,
+          changes: { stage },
+        });
+      });
+    const queued = request
+      .then((saved) => {
+        if (revisions.get(id) === revision) {
+          install(saved);
+          saveStates.value.set(id, "saved");
+          retryStages.delete(id);
+        }
+      })
+      .catch(async (reason: unknown) => {
+        const error =
+          reason instanceof ApiError
+            ? reason
+            : new ApiError("The save failed. Try again.");
+        if (revisions.get(id) !== revision) return;
+        let authoritative = error.latest;
+        if (!authoritative) {
+          try {
+            authoritative = await fakeApi.getOpportunity(id);
+          } catch {
+            authoritative = base;
+          }
+        }
+        if (authoritative) install(authoritative);
+        const state: SaveState = error.conflict ? "conflict" : "error";
+        saveStates.value.set(id, state);
+        errors.value.set(id, error.message);
+      })
+      .finally(() => {
+        if (queues.get(id) === queued) queues.delete(id);
+      });
+    queues.set(id, queued);
+    await queued;
+  }
+
+  async function retry(id: string) {
+    const pendingStage = retryStages.get(id);
+    if (!pendingStage || !recordById.has(id)) return;
+    // Preserve the intended stage before refreshing authoritative state.
+    try {
+      const server = await fakeApi.getOpportunity(id);
+      if (server.stage === pendingStage) {
+        install(server);
+        saveStates.value.set(id, "saved");
+        errors.value.delete(id);
+        retryStages.delete(id);
+        return;
+      }
+      install(server);
+      await changeStage(id, pendingStage);
+    } catch (error) {
+      errors.value.set(
+        id,
+        error instanceof Error ? error.message : "Retry failed.",
+      );
+    }
+  }
+
+  async function simulateTeammate(
+    id = records.value[Math.floor(Math.random() * records.value.length)]?.id,
+  ) {
+    if (!id || !simulation.teammateUpdates) return;
+    const stage = DEAL_STAGES[Math.floor(Math.random() * DEAL_STAGES.length)];
+    const updated = await fakeApi.simulateTeammateUpdate(id, { stage });
+    if (!queues.has(id)) {
+      install(updated);
+      saveStates.value.set(id, "saved");
+    }
+    return updated;
+  }
+
+  async function bulkChangeStage(stage: DealStage, retryFailedOnly = false) {
+    const ids = retryFailedOnly
+      ? [...bulkProgress.value.failedIds]
+      : selection.selectedIdList();
+    const originalRecords = ids
+      .map((id) => recordById.get(id))
+      .filter((item): item is Opportunity => Boolean(item));
+    if (!retryFailedOnly)
+      undoSnapshot.value = {
+        ids,
+        previous: new Map(originalRecords.map((r) => [r.id, r.stage])),
+        version: new Map(originalRecords.map((r) => [r.id, r.version])),
+      };
+    for (const record of originalRecords) {
+      install({ ...record, stage });
+      saveStates.value.set(record.id, "saving");
+    }
+    bulkProgress.value = {
+      running: true,
+      completed: 0,
+      total: ids.length,
+      failedIds: [],
+      cancelled: false,
+    };
+    cancelBulkRequested.value = false;
+    const failed = new Set<string>();
+    const successful = new Set<string>();
+    const chunkSize = 500;
+    // Small bounded batches prevent a 50k selection from opening thousands of concurrent requests.
+    for (let start = 0; start < originalRecords.length; start += chunkSize) {
+      const chunk = originalRecords.slice(start, start + chunkSize);
+      let results: Awaited<ReturnType<typeof fakeApi.bulkUpdateOpportunities>>;
+      try {
+        results = await fakeApi.bulkUpdateOpportunities(
+          chunk.map((record) => ({
+            id: record.id,
+            expectedVersion: record.version,
+            changes: { stage },
+          })),
+        );
+      } catch (reason) {
+        const message =
+          reason instanceof Error ? reason.message : "The bulk request failed.";
+        for (const record of originalRecords.slice(start)) {
+          try {
+            install(await fakeApi.getOpportunity(record.id));
+          } catch {
+            /* leave the best known local record visible */
+          }
+          failed.add(record.id);
+          saveStates.value.set(record.id, "error");
+          errors.value.set(record.id, message);
+        }
+        bulkProgress.value = {
+          running: true,
+          completed: originalRecords.length,
+          total: ids.length,
+          failedIds: [...failed],
+          cancelled: false,
+        };
+        break;
+      }
+      for (const result of results) {
+        if (result.record) {
+          install(result.record);
+          saveStates.value.set(result.id, "saved");
+          errors.value.delete(result.id);
+          successful.add(result.id);
+          if (undoSnapshot.value)
+            undoSnapshot.value.version.set(result.id, result.record.version);
+        } else {
+          failed.add(result.id);
+          if (result.error?.latest) install(result.error.latest);
+          else {
+            try {
+              install(await fakeApi.getOpportunity(result.id));
+            } catch {
+              /* keep the server message visible */
+            }
+          }
+          saveStates.value.set(
+            result.id,
+            result.error?.conflict ? "conflict" : "error",
+          );
+          errors.value.set(
+            result.id,
+            result.error?.message ?? "Bulk update failed.",
+          );
+        }
+      }
+      bulkProgress.value = {
+        running: true,
+        completed: Math.min(start + chunk.length, originalRecords.length),
+        total: ids.length,
+        failedIds: [...failed],
+        cancelled: false,
+      };
+      if (cancelBulkRequested.value) {
+        for (const record of originalRecords.slice(start + chunk.length)) {
+          try {
+            install(await fakeApi.getOpportunity(record.id));
+            saveStates.value.set(record.id, "saved");
+            errors.value.delete(record.id);
+          } catch {
+            /* keep the last known record if reconciliation is unavailable */
+          }
+        }
+        bulkProgress.value.cancelled = true;
+        break;
+      }
+    }
+    bulkProgress.value.running = false;
+    if (undoSnapshot.value)
+      undoSnapshot.value.ids = retryFailedOnly
+        ? [...new Set([...undoSnapshot.value.ids, ...successful])]
+        : [...successful];
+    if (!retryFailedOnly && !bulkProgress.value.cancelled) selection.clear();
+  }
+
+  function cancelBulk() {
+    if (bulkProgress.value.running) cancelBulkRequested.value = true;
+  }
+
+  async function undoBulk() {
+    const snapshot = undoSnapshot.value;
+    if (!snapshot) return { restored: 0, skipped: 0 };
+    let restored = 0,
+      skipped = 0;
+    for (let start = 0; start < snapshot.ids.length; start += 500) {
+      const requests = snapshot.ids.slice(start, start + 500).flatMap((id) => {
+        const current = recordById.get(id),
+          previous = snapshot.previous.get(id);
+        if (
+          !current ||
+          previous === undefined ||
+          current.version !== snapshot.version.get(id)
+        ) {
+          skipped += 1;
+          return [];
+        }
+        return [
+          {
+            id,
+            expectedVersion: current.version,
+            changes: { stage: previous },
+          },
+        ];
+      });
+      const results = await fakeApi.bulkUpdateOpportunities(requests);
+      for (const result of results) {
+        if (result.record) {
+          install(result.record);
+          restored += 1;
+        } else {
+          if (result.error?.latest) install(result.error.latest);
+          skipped += 1;
+        }
+      }
+    }
+    undoSnapshot.value = null;
+    return { restored, skipped };
+  }
+
+  function clearFilters() {
+    filters.value = { ...DEFAULT_FILTERS };
+  }
+  function setStageFilter(stage: DealStage | "") {
+    filters.value.stage = stage;
+  }
+  function toggleSort(field: SortField) {
+    if (sortField.value === field)
+      sortDirection.value = sortDirection.value === "asc" ? "desc" : "asc";
+    else {
+      sortField.value = field;
+      sortDirection.value = "asc";
+    }
+  }
+
+  return {
+    records,
+    saveStates,
+    errors,
+    loading,
+    initialized,
+    filters,
+    sortField,
+    sortDirection,
+    visibleRecords,
+    stageCounts,
+    totalValue,
+    attentionCount,
+    filteredIds,
+    recordOwners,
+    bulkProgress,
+    undoSnapshot,
+    initialize,
+    changeStage,
+    retry,
+    simulateTeammate,
+    bulkChangeStage,
+    cancelBulk,
+    undoBulk,
+    clearFilters,
+    setStageFilter,
+    toggleSort,
+  };
+});
