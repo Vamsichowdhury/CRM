@@ -1,4 +1,4 @@
-# Northstar Sales Pipeline
+# HighLevel Sales Pipeline
 
 A table-first sales pipeline workspace for a 20-person B2B sales team managing 50,000 opportunities. It demonstrates virtualized data browsing, optimistic updates, version conflicts, explicit recovery, and bulk operations against a simulated in-memory API.
 
@@ -30,6 +30,7 @@ The fake API owns an authoritative server-side `Map` separate from client state.
 - Bulk stage changes in batches of 500, with per-record partial failure status, retry of failures, and version-checked undo
 - Cancel bulk work between dispatched batches; in-flight records finish and undispatched rows are reconciled
 - Teammate update simulation and network simulation controls
+- Persistent light/dark theme toggle that follows system preference until the user chooses a theme
 - Keyboard help: `/` focuses search, Arrow Up/Down moves focused rows, Space toggles selection, Escape clears selection
 
 ## Performance approach

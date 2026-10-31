@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import PipelineOverview from "./components/PipelineOverview.vue";
 import OpportunityTable from "./components/OpportunityTable.vue";
 import SimulationPanel from "./components/SimulationPanel.vue";
@@ -13,6 +13,22 @@ const selection = useSelectionStore();
 const searchInput = ref<HTMLInputElement | null>(null);
 const selectedStage = ref<DealStage | "">("");
 const loadError = ref("");
+type Theme = "light" | "dark";
+function storedTheme(): Theme | null {
+  try {
+    const saved = window.localStorage.getItem("highlevel-theme");
+    if (saved === "dark" || saved === "light") return saved;
+  } catch {
+    // Storage may be unavailable in private or restricted browser contexts.
+  }
+  return null;
+}
+const savedTheme = storedTheme();
+const hasSavedThemePreference = ref(savedTheme !== null);
+const systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
+const theme = ref<Theme>(
+  savedTheme ?? (systemThemeQuery?.matches ? "dark" : "light"),
+);
 const toast = ref<{
   message: string;
   kind: "success" | "error" | "info";
@@ -22,6 +38,20 @@ const toast = ref<{
 let toastTimer: number | undefined;
 const selectedCount = computed(() => selection.selectionCount);
 const busy = computed(() => store.bulkProgress.running);
+watch(
+  theme,
+  (value) => {
+    document.documentElement.dataset.theme = value;
+    if (hasSavedThemePreference.value) {
+      try {
+        window.localStorage.setItem("highlevel-theme", value);
+      } catch {
+        // The selected theme still applies for this session when storage is blocked.
+      }
+    }
+  },
+  { immediate: true },
+);
 
 function notify(
   message: string,
@@ -124,6 +154,14 @@ function onShortcut(event: KeyboardEvent) {
     else selection.clear();
   }
 }
+function toggleTheme() {
+  hasSavedThemePreference.value = true;
+  theme.value = theme.value === "dark" ? "light" : "dark";
+}
+function onSystemThemeChange(event: MediaQueryListEvent) {
+  if (!hasSavedThemePreference.value)
+    theme.value = event.matches ? "dark" : "light";
+}
 async function loadPipeline() {
   loadError.value = "";
   try {
@@ -136,19 +174,22 @@ async function loadPipeline() {
 }
 onMounted(() => {
   window.addEventListener("keydown", onShortcut);
+  if (!hasSavedThemePreference.value)
+    systemThemeQuery?.addEventListener("change", onSystemThemeChange);
   void loadPipeline();
 });
 onUnmounted(() => {
   window.removeEventListener("keydown", onShortcut);
+  systemThemeQuery?.removeEventListener("change", onSystemThemeChange);
   window.clearTimeout(toastTimer);
 });
 </script>
 
 <template>
-  <div class="app-frame">
+  <div class="app-frame" :data-theme="theme">
     <header class="app-header">
-      <a class="brand" href="#" aria-label="Northstar home"
-        ><span class="brand-mark">N</span><span>northstar</span></a
+      <a class="brand" href="#" aria-label="HighLevel home"
+        ><span class="brand-mark">HL</span><span>HighLevel</span></a
       >
       <div class="header-divider"></div>
       <div class="workspace-title">
@@ -157,6 +198,15 @@ onUnmounted(() => {
       </div>
       <div class="header-right">
         <span class="workspace-pill"><i></i> All opportunities</span>
+        <button
+          class="theme-toggle"
+          type="button"
+          :aria-label="`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`"
+          :title="`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`"
+          @click="toggleTheme"
+        >
+          <span aria-hidden="true">{{ theme === "dark" ? "☼" : "☾" }}</span>
+        </button>
         <div class="user-avatar" aria-label="Signed in as Vamsi">V</div>
       </div>
     </header>
@@ -353,7 +403,7 @@ onUnmounted(() => {
       </template>
       <footer class="page-footer">
         <span
-          >Northstar CRM <b>·</b> Pipeline data is stored locally for this
+          >HighLevel CRM <b>·</b> Pipeline data is stored locally for this
           demo</span
         ><span>Last synced just now</span>
       </footer>

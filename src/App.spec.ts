@@ -27,6 +27,7 @@ describe("pipeline workspace", () => {
   beforeEach(async () => {
     pinia = createPinia();
     setActivePinia(pinia);
+    window.localStorage.removeItem("highlevel-theme");
     fakeApi.reset([fixture]);
     const simulation = useSimulationStore();
     simulation.minDelayMs = 0;
@@ -54,9 +55,16 @@ describe("pipeline workspace", () => {
       await flushPromises();
       await nextTick();
       expect(wrapper.get("h1").text()).toBe("Sales pipeline");
+      expect(wrapper.find(".brand").text()).toContain("HighLevel");
       expect(wrapper.text()).toContain("1 results");
       expect(wrapper.find('[role="grid"]').exists()).toBe(true);
       expect(wrapper.text()).toContain("Total opportunities");
+      expect(wrapper.get(".app-frame").attributes("data-theme")).toBe("light");
+      await wrapper
+        .get('button[aria-label="Switch to dark theme"]')
+        .trigger("click");
+      expect(wrapper.get(".app-frame").attributes("data-theme")).toBe("dark");
+      expect(window.localStorage.getItem("highlevel-theme")).toBe("dark");
       wrapper.unmount();
     } finally {
       Element.prototype.getBoundingClientRect = originalRect;
