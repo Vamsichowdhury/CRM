@@ -127,7 +127,7 @@ export class FakeApi {
         return {
           id: request.id,
           error: new ApiError(
-            "This record could not be saved. Retry failed records only.",
+            "This record could not be saved. Retry this row or retry all failed records.",
             clone(current),
           ),
         };

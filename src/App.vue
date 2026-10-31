@@ -489,7 +489,7 @@ onUnmounted(() => {
               ><button
                 class="button primary"
                 :disabled="!selectedCount || !selectedStage || busy"
-                @click="bulkUpdate"
+                @click="bulkUpdate()"
               >
                 {{ busy ? "Updating…" : "Apply to selected" }}
               </button>

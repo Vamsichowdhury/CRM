@@ -271,6 +271,9 @@ export const useOpportunityStore = defineStore("opportunities", () => {
         version: new Map(originalRecords.map((r) => [r.id, r.version])),
       };
     for (const record of originalRecords) {
+      // Keep the intended stage so the row-level Retry action can replay a
+      // failed bulk item just like the bulk Retry failed action does.
+      retryStages.set(record.id, stage);
       install({ ...record, stage });
       saveStates.value.set(record.id, "saving");
     }
@@ -326,6 +329,7 @@ export const useOpportunityStore = defineStore("opportunities", () => {
           serverVersions.set(result.id, result.record.version);
           saveStates.value.set(result.id, "saved");
           errors.value.delete(result.id);
+          retryStages.delete(result.id);
           successful.add(result.id);
           if (undoSnapshot.value)
             undoSnapshot.value.version.set(result.id, result.record.version);
@@ -346,6 +350,7 @@ export const useOpportunityStore = defineStore("opportunities", () => {
             result.id,
             result.error?.conflict ? "conflict" : "error",
           );
+          retryStages.set(result.id, stage);
           errors.value.set(
             result.id,
             result.error?.message ?? "Bulk update failed.",
@@ -365,6 +370,7 @@ export const useOpportunityStore = defineStore("opportunities", () => {
             install(await fakeApi.getOpportunity(record.id));
             saveStates.value.set(record.id, "saved");
             errors.value.delete(record.id);
+            retryStages.delete(record.id);
           } catch {
             /* keep the last known record if reconciliation is unavailable */
           }
