@@ -24,7 +24,7 @@ const scrollElement = ref<HTMLElement | null>(null);
 const highlightedId = ref<string | null>(null);
 const focusAnnouncement = ref("");
 const updateNotice = ref("");
-const activeRowId = ref<string | null>(null);
+const activeRowId = computed(() => store.activeOpportunityId);
 let highlightTimer: number | undefined;
 let noticeTimer: number | undefined;
 const rows = computed(() => store.visibleRecords);
@@ -71,7 +71,7 @@ function toggleRendered() {
   selection.selectVisible(renderedIds.value, !allRenderedSelected.value);
 }
 function setActiveRow(id: string) {
-  activeRowId.value = id;
+  store.setActiveOpportunity(id);
 }
 function jumpToActiveRow() {
   const id = activeRowId.value;

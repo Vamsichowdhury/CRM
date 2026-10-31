@@ -17,6 +17,8 @@ const ownerSearchInput = ref<HTMLInputElement | null>(null);
 const ownerMenuOpen = ref(false);
 const ownerSearch = ref("");
 const selectedStage = ref<DealStage | "">("");
+const failedBulkStage = ref<DealStage | null>(null);
+const bulkBatchTotal = ref(0);
 const loadError = ref("");
 type Theme = "light" | "dark";
 function storedTheme(): Theme | null {
@@ -83,14 +85,20 @@ function notify(
     toast.value = null;
   }, 6000);
 }
-async function bulkUpdate() {
-  if (!selectedStage.value || !selectedCount.value) return;
-  const count = selectedCount.value;
-  const targetStage = selectedStage.value;
+async function bulkUpdate(retryFailedOnly = false) {
+  const targetStage = retryFailedOnly
+    ? failedBulkStage.value
+    : selectedStage.value;
+  if (!targetStage || (!retryFailedOnly && !selectedCount.value)) return;
+  const count = retryFailedOnly
+    ? store.bulkProgress.failedIds.length
+    : selectedCount.value;
+  if (!retryFailedOnly) bulkBatchTotal.value = count;
   try {
-    await store.bulkChangeStage(targetStage);
+    await store.bulkChangeStage(targetStage, retryFailedOnly);
     const failed = store.bulkProgress.failedIds.length;
     const hasUndo = Boolean(store.undoSnapshot?.ids.length);
+    failedBulkStage.value = failed ? targetStage : null;
     const undo = async () => {
       const result = await store.undoBulk();
       notify(
@@ -114,19 +122,10 @@ async function bulkUpdate() {
       );
     if (failed)
       notify(
-        `${(count - failed).toLocaleString("en-IN")} updated · ${failed} failed`,
+        `Partial success: ${failed.toLocaleString("en-IN")} of ${bulkBatchTotal.value.toLocaleString("en-IN")} opportunities need attention.`,
         "error",
         "Retry failed",
-        async () => {
-          await store.bulkChangeStage(targetStage, true);
-          const stillFailed = store.bulkProgress.failedIds.length;
-          notify(
-            stillFailed
-              ? `${stillFailed} records still need attention.`
-              : "All failed records were saved.",
-            stillFailed ? "error" : "success",
-          );
-        },
+        retryFailedBulk,
       );
     if (!store.bulkProgress.cancelled) selectedStage.value = "";
   } catch (error) {
@@ -135,6 +134,24 @@ async function bulkUpdate() {
       "error",
     );
   }
+}
+async function retryFailedBulk() {
+  if (!failedBulkStage.value) return;
+  await bulkUpdate(true);
+  const failed = store.bulkProgress.failedIds.length;
+  notify(
+    failed
+      ? `${failed.toLocaleString("en-IN")} records still need attention.`
+      : "All failed records were saved.",
+    failed ? "error" : "success",
+  );
+}
+async function undoBulkChanges() {
+  const result = await store.undoBulk();
+  notify(
+    `${result.restored} restored · ${result.skipped} skipped because records changed`,
+    result.skipped ? "info" : "success",
+  );
 }
 function selectAllMatching() {
   selection.selectAllMatching(store.filteredIds);
@@ -196,20 +213,14 @@ function onOwnerOptionKeydown(event: KeyboardEvent, owner: string) {
     options[nextIndex]?.focus();
   }
 }
-async function teammateChange() {
-  try {
-    const update = await store.simulateTeammate();
-    if (update)
-      notify(
-        `Teammate updated ${update.companyName}. Sync to load the latest table data.`,
-        "info",
-      );
-  } catch (error) {
-    notify(
-      error instanceof Error ? error.message : "Teammate update failed.",
-      "error",
-    );
-  }
+function onTeammateUpdated(companyName: string) {
+  notify(
+    `A teammate edited ${companyName}. Try changing this deal before syncing to test conflict protection.`,
+    "info",
+  );
+}
+function onSimulationError(message: string) {
+  notify(message, "error");
 }
 function onShortcut(event: KeyboardEvent) {
   if (event.defaultPrevented) return;
@@ -309,13 +320,6 @@ onUnmounted(() => {
             Manage furniture enquiries, customer orders and sales opportunities.
           </p>
         </div>
-        <button
-          class="button secondary"
-          :disabled="store.syncing || busy"
-          @click="teammateChange"
-        >
-          <span class="button-icon">⟳</span> Simulate teammate update
-        </button>
       </div>
 
       <div v-if="store.loading && !store.initialized" class="loading-card">
@@ -510,6 +514,46 @@ onUnmounted(() => {
               ></i>
             </div>
           </div>
+          <div
+            v-if="!busy && store.bulkProgress.failedIds.length"
+            class="bulk-failure-summary"
+            role="alert"
+          >
+            <span class="bulk-failure-icon" aria-hidden="true">!</span>
+            <div class="bulk-failure-copy">
+              <strong>
+                {{ store.bulkProgress.failedIds.length.toLocaleString("en-IN") }}
+                of {{ bulkBatchTotal.toLocaleString("en-IN") }} updates need attention
+              </strong>
+              <span>
+                <template v-if="store.undoSnapshot?.ids.length">
+                  Successful updates are saved. Retry only failed records or
+                  undo saved changes where the server version still matches.
+                </template>
+                <template v-else>
+                  Successful changes were undone. Retry only the remaining failed
+                  records when ready.
+                </template>
+              </span>
+            </div>
+            <div class="bulk-failure-actions">
+              <button
+                class="button retry-failed-button"
+                :disabled="busy || !failedBulkStage"
+                @click="retryFailedBulk"
+              >
+                Retry {{ store.bulkProgress.failedIds.length.toLocaleString("en-IN") }} failed
+              </button>
+              <button
+                v-if="store.undoSnapshot?.ids.length"
+                class="button undo-failed-button"
+                :disabled="busy"
+                @click="undoBulkChanges"
+              >
+                Undo successful updates
+              </button>
+            </div>
+          </div>
           <OpportunityTable
             @stage-saved="notify($event, 'success')"
             @save-error="notify($event, 'error')"
@@ -519,7 +563,11 @@ onUnmounted(() => {
         </section>
 
         <div class="below-grid">
-          <SimulationPanel />
+          <SimulationPanel
+            :disabled="busy || store.syncing"
+            @teammate-updated="onTeammateUpdated"
+            @simulation-error="onSimulationError"
+          />
           <div class="keyboard-help">
             <span class="help-icon">⌨</span
             ><span

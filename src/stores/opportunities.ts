@@ -29,6 +29,7 @@ export const useOpportunityStore = defineStore("opportunities", () => {
   const loading = ref(false);
   const initialized = ref(false);
   const syncing = ref(false);
+  const activeOpportunityId = ref<string | null>(null);
   const pendingSyncIds = ref(new Set<string>());
   const pendingSyncGeneration = ref(0);
   const filters = ref<OpportunityFilters>({ ...DEFAULT_FILTERS });
@@ -233,14 +234,24 @@ export const useOpportunityStore = defineStore("opportunities", () => {
   }
 
   async function simulateTeammate(
-    id = records.value[Math.floor(Math.random() * records.value.length)]?.id,
+    id = activeOpportunityId.value ??
+      records.value[Math.floor(Math.random() * records.value.length)]?.id,
   ) {
     if (!id || !simulation.teammateUpdates) return;
-    const stage = DEAL_STAGES[Math.floor(Math.random() * DEAL_STAGES.length)];
+    const current = await fakeApi.getOpportunity(id);
+    const availableStages = DEAL_STAGES.filter(
+      (stage) => stage !== current.stage,
+    );
+    const stage =
+      availableStages[Math.floor(Math.random() * availableStages.length)];
     const updated = await fakeApi.simulateTeammateUpdate(id, { stage });
     pendingSyncGeneration.value += 1;
     pendingSyncIds.value = new Set([...pendingSyncIds.value, id]);
     return updated;
+  }
+
+  function setActiveOpportunity(id: string | null) {
+    activeOpportunityId.value = id;
   }
 
   async function bulkChangeStage(stage: DealStage, retryFailedOnly = false) {
@@ -448,6 +459,7 @@ export const useOpportunityStore = defineStore("opportunities", () => {
     bulkProgress,
     syncPending,
     syncing,
+    activeOpportunityId,
     pendingSyncCount,
     undoSnapshot,
     initialize,
@@ -455,6 +467,7 @@ export const useOpportunityStore = defineStore("opportunities", () => {
     changeStage,
     retry,
     simulateTeammate,
+    setActiveOpportunity,
     bulkChangeStage,
     cancelBulk,
     undoBulk,

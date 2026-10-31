@@ -1,14 +1,41 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useOpportunityStore } from "../stores/opportunities";
 import { useSimulationStore } from "../stores/simulation";
 
 const simulation = useSimulationStore();
+const opportunities = useOpportunityStore();
+const props = defineProps<{ disabled?: boolean }>();
+const emit = defineEmits<{
+  teammateUpdated: [companyName: string];
+  simulationError: [message: string];
+}>();
 const failurePercent = computed({
   get: () => Math.round(simulation.failureRate * 100),
   set: (value: number) => {
     simulation.failureRate = value / 100;
   },
 });
+const activeOpportunity = computed(
+  () =>
+    opportunities.records.find(
+      (record) => record.id === opportunities.activeOpportunityId,
+    ) ?? null,
+);
+
+async function simulateActiveDealEdit() {
+  if (!activeOpportunity.value || props.disabled) return;
+  const companyName = activeOpportunity.value.companyName;
+  try {
+    await opportunities.simulateTeammate(activeOpportunity.value.id);
+    emit("teammateUpdated", companyName);
+  } catch (error) {
+    emit(
+      "simulationError",
+      error instanceof Error ? error.message : "Could not simulate a teammate edit.",
+    );
+  }
+}
 </script>
 
 <template>
@@ -23,6 +50,35 @@ const failurePercent = computed({
       }}</span>
     </summary>
     <div class="simulation-content">
+      <section class="simulation-scenario" aria-labelledby="concurrency-title">
+        <div class="scenario-heading">
+          <span class="scenario-icon" aria-hidden="true">⇄</span>
+          <div>
+            <strong id="concurrency-title">Same-deal concurrency</strong>
+            <small>Test protection against overwriting a teammate’s newer edit</small>
+          </div>
+        </div>
+        <div v-if="activeOpportunity" class="scenario-active-deal">
+          <span class="active-deal-label">Active deal</span>
+          <strong>{{ activeOpportunity.companyName }}</strong>
+          <span>{{ activeOpportunity.stage }}</span>
+        </div>
+        <p v-else class="scenario-instructions">
+          Select a deal row first. The simulation will edit that same deal on the server.
+        </p>
+        <p v-if="activeOpportunity" class="scenario-instructions">
+          Simulate a teammate edit, then change this deal’s stage before syncing. The stale save
+          will be flagged as a conflict; sync to load the teammate’s latest version.
+        </p>
+        <button
+          class="button simulate-deal-button"
+          type="button"
+          :disabled="!activeOpportunity || disabled || !simulation.teammateUpdates"
+          @click="simulateActiveDealEdit"
+        >
+          <span aria-hidden="true">⟳</span> Simulate teammate edit on active deal
+        </button>
+      </section>
       <label class="toggle-row"
         ><span
           ><strong>Network connection</strong

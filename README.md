@@ -33,7 +33,7 @@ The fake API owns an authoritative server-side `Map` separate from client state.
 - TanStack virtualized rows with an overscan of eight rows
 - Select rendered rows, select all matching filtered results, exclude individual IDs, and clear selection
 - Optimistic stage changes with saving/saved/error/conflict states, retry, and stale-response protection
-- Bulk stage changes in batches of 500, with per-record version checks, partial failure status, retry of failures, and version-checked undo
+- Bulk stage changes in batches of 500, with per-record version checks, a persistent partial-failure panel, retry of failed records, and version-checked undo of successful changes
 - Cancel bulk work between dispatched batches; in-flight records finish and undispatched rows are reconciled
 - Teammate update simulation and network simulation controls
 - Persistent light/dark theme toggle that follows system preference until the user chooses a theme
@@ -53,7 +53,9 @@ Bulk work is sent in batches of 500. A batch shares one simulated request delay,
 
 ## Simulation controls
 
-Defaults are 300–1500 ms request delay and 10% save failure probability. Use the controls at the bottom of the workspace to adjust failure rate or switch offline. The header action simulates a FurniCraft teammate editing one customer opportunity. That server-side change stays pending until **Sync updates** is clicked; this simulation does not synchronize separate browser tabs or devices.
+Defaults are 300–1500 ms request delay and 10% save failure probability. Open **Simulation controls** below the table to adjust the failure rate or switch offline. To demonstrate a same-deal conflict, select a row, open the **Same-deal concurrency** scenario, and simulate a teammate edit. Change that deal's stage before syncing: the stale save is rejected and shown as a conflict. Use **Sync updates** to load the teammate's latest version, review it, then retry if appropriate. This simulation does not synchronize separate browser tabs or devices.
+
+For partial bulk failures, select multiple opportunities, choose a stage, and apply the update with a nonzero failure rate. Successful records remain saved and the persistent alert shows how many records need attention. **Retry failed** sends only those IDs again. **Undo successful updates** attempts to restore the successful records, skipping any whose versions changed after the bulk save.
 
 ## Folder structure
 

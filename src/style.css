@@ -805,6 +805,68 @@ a {
   color: #bb4d59;
   text-decoration: underline;
 }
+.bulk-failure-summary {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 15px;
+  border-bottom: 1px solid #f1c9c7;
+  background: linear-gradient(100deg, #fff1ef, #fff9f3);
+  color: #773c36;
+}
+.bulk-failure-icon {
+  flex: 0 0 27px;
+  height: 27px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #c94d43;
+  color: white;
+  font-size: 15px;
+  font-weight: 800;
+  box-shadow: 0 0 0 4px #f8d9d5;
+}
+.bulk-failure-copy {
+  display: flex;
+  flex: 1;
+  min-width: 160px;
+  flex-direction: column;
+  gap: 3px;
+}
+.bulk-failure-copy strong {
+  color: #8a312c;
+  font-size: 11px;
+}
+.bulk-failure-copy span {
+  color: #98635d;
+  font-size: 9.5px;
+}
+.bulk-failure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.retry-failed-button,
+.undo-failed-button {
+  min-height: 30px;
+  border: 1px solid #d75a4f;
+  background: #c94d43;
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+}
+.retry-failed-button:hover:not(:disabled) {
+  background: #b83e36;
+}
+.undo-failed-button {
+  border-color: #e0a39c;
+  background: #fff;
+  color: #9a423a;
+}
+.undo-failed-button:hover:not(:disabled) {
+  background: #fff8f6;
+}
 .table-shell {
   width: 100%;
 }
@@ -1276,6 +1338,83 @@ a {
 .simulation-content {
   padding: 0 14px 12px;
   border-top: 1px solid #f0f2f5;
+}
+.simulation-scenario {
+  margin: 12px 0 4px;
+  padding: 12px;
+  border: 1px solid #d8e0fb;
+  border-radius: 7px;
+  background: linear-gradient(130deg, #f5f7ff, #f8fbff);
+}
+.scenario-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.scenario-heading > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.scenario-heading strong {
+  color: #344b8b;
+  font-size: 10.5px;
+}
+.scenario-heading small,
+.scenario-instructions {
+  color: #78849c;
+  font-size: 9px;
+  line-height: 1.5;
+}
+.scenario-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: #e4eaff;
+  color: #5269bd;
+  font-size: 17px;
+}
+.scenario-active-deal {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 8px 9px;
+  border: 1px solid #e0e6f5;
+  border-radius: 5px;
+  background: #fff;
+  font-size: 9px;
+}
+.scenario-active-deal strong {
+  color: #34435c;
+}
+.scenario-active-deal > span:last-child {
+  margin-left: auto;
+  color: #63718a;
+}
+.active-deal-label {
+  color: #8a95a7;
+}
+.scenario-instructions {
+  margin: 8px 0 0;
+}
+.simulate-deal-button {
+  margin-top: 9px;
+  border: 1px solid #bac8f7;
+  background: #edf1ff;
+  color: #4059ae;
+  font-size: 9.5px;
+  font-weight: 700;
+}
+.simulate-deal-button:hover:not(:disabled) {
+  background: #e0e7ff;
+}
+.simulate-deal-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 .toggle-row,
 .slider-row {
@@ -2000,6 +2139,53 @@ a {
 .app-frame[data-theme="dark"] .help-icon {
   background: #29354a;
   color: #afbeef;
+}
+.app-frame[data-theme="dark"] .simulation-scenario {
+  border-color: #3b4b70;
+  background: linear-gradient(130deg, #232f47, #202b3a);
+}
+.app-frame[data-theme="dark"] .scenario-heading strong,
+.app-frame[data-theme="dark"] .scenario-active-deal strong {
+  color: #d5deff;
+}
+.app-frame[data-theme="dark"] .scenario-heading small,
+.app-frame[data-theme="dark"] .scenario-instructions,
+.app-frame[data-theme="dark"] .active-deal-label,
+.app-frame[data-theme="dark"] .scenario-active-deal > span:last-child {
+  color: #a2aec5;
+}
+.app-frame[data-theme="dark"] .scenario-icon {
+  background: #303d5d;
+  color: #bdcaff;
+}
+.app-frame[data-theme="dark"] .scenario-active-deal {
+  border-color: #3a465e;
+  background: #1a2431;
+}
+.app-frame[data-theme="dark"] .simulate-deal-button {
+  border-color: #4c5f91;
+  background: #2b3959;
+  color: #c5d0ff;
+}
+.app-frame[data-theme="dark"] .bulk-failure-summary {
+  border-color: #714c50;
+  background: linear-gradient(100deg, #39272c, #342d29);
+  color: #edc5bf;
+}
+.app-frame[data-theme="dark"] .bulk-failure-copy strong {
+  color: #ffd0ca;
+}
+.app-frame[data-theme="dark"] .bulk-failure-copy span {
+  color: #d8aaa4;
+}
+.app-frame[data-theme="dark"] .bulk-failure-icon {
+  background: #b94e4a;
+  box-shadow: 0 0 0 4px #4a3037;
+}
+.app-frame[data-theme="dark"] .undo-failed-button {
+  border-color: #8a5a5c;
+  background: #392a30;
+  color: #ffcac5;
 }
 .app-frame[data-theme="dark"] .toggle-row strong,
 .app-frame[data-theme="dark"] .slider-row strong {
