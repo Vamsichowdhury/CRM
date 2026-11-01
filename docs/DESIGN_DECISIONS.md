@@ -1,111 +1,276 @@
-# Design decisions and trade-offs
+# Design Decisions: Why the App Works This Way
 
-This document explains the choices visible in the current FurniCraft Sales Pipeline implementation. The application is an interview assignment prototype: its fake API is an in-memory model, not a production backend. File paths below are relative to the repository root.
+This document explains the choices behind the FurniCraft Sales Pipeline in everyday language. The examples use its sample office-furniture deals. The app is a frontend prototype, so its “server” is a local simulation rather than a production service.
 
-## Product and interface
+## How the workspace looks and feels
 
-### 1. Table-first workspace instead of Kanban
+### 1. A table with a visual stage strip
 
-- **Decision / problem:** Use one searchable, sortable, filterable virtual table as the main work surface. The assignment has 50,000 opportunities; a Kanban board would create seven large stage columns and make cross-stage search, comparison, bulk selection, and keyboard review awkward.
-- **Why / benefits:** Salespeople can scan company, product, quantity, value, owner, stage, activity, and save state together. Stage arrows provide quick adjacent moves while a dropdown still supports direct stage selection. The stage strip above the table provides a lightweight pipeline overview and can filter the table.
-- **Alternatives:** A full Kanban board; a separate board and table mode; a paged table. A board can make stage movement intuitive but does not solve large-list scanning. Two modes add navigation and duplicate interaction rules. Pagination limits DOM work but interrupts continuous review and requires page-aware bulk selection.
-- **Trade-offs / production change:** The table is dense and less spatial than Kanban; one row has many controls. A production product should validate task workflows with sales users and may offer a saved Kanban view backed by server queries. Current implementation: `src/components/OpportunityTable.vue`, `OpportunityTableRow.vue`, `PipelineOverview.vue`, `utils/stageNavigation.ts`.
+**What we chose:** A searchable table is the main workspace. A colored stage strip above it shows the pipeline and filters the table when clicked. Each row also has arrows and a stage dropdown.
 
-### 2. Explicit stage controls rather than drag-and-drop
+**Why:** A sales representative may need to compare customer, product, quantity, deal value, owner, stage, and activity across many deals. A table puts those details beside one another. The stage strip gives a quick visual view of the pipeline, and clicking **New Lead** shows only those records in the table. This combines a visual stage overview with the detailed scanning and selection of a table.
 
-- **Decision:** Inline stage select plus previous/next arrows. Arrows follow a quick progression that omits terminal Won/Lost from the linear route; direct dropdown can choose any stage.
-- **Reason / benefits:** Controls are visible, keyboard operable, and precise in a dense table. The arrow flow avoids drag precision and makes the action explicit. After a save, focus moves to the next record in the review order captured before resorting; a briefly green border indicates the moved row.
-- **Alternatives:** Drag-and-drop, only a dropdown, or keyboard shortcuts only. Drag/drop is harder to use with a virtualized table and keyboard; dropdown-only costs more interaction; keyboard-only is undiscoverable.
-- **Trade-offs:** More controls in the row and arrows require users to learn their meaning. `stageNavigation.ts`, `OpportunityTableRow.vue`, and `OpportunityTable.vue` implement this. The default sort is updatedAt descending, so saved rows can move.
+**Other options:** A full Kanban board would show one column per stage. It can be easy to understand with a short list, but thousands of cards across seven columns would be difficult to search and compare. A separate table and board mode would mean more screens and duplicated behavior.
 
-### 3. Visible synchronization state
+**Cost and next step:** The table is denser than a board. In a real product, I would watch salespeople use both views and add a board only if it solves a real workflow need.
 
-- **Decision:** Simulated teammate edits change fake server state and mark pending IDs; user explicitly clicks **Sync updates** to fetch the latest full snapshot. The active row remains highlighted and a **Go to active row** control restores its location.
-- **Reason:** This demonstrates collaboration without continuously changing row order while the user reviews a record. The user sees that remote data is waiting and chooses when to reconcile.
-- **Alternatives:** Polling, WebSockets, or refreshing after each teammate write. Those are suitable production transport choices, but cannot be meaningfully demonstrated across users in this single-browser fake API. A whole-snapshot sync is simple for the assignment but expensive.
-- **Trade-offs:** It is not real cross-device collaboration; sync reloads all 50,000 records. `syncActions.ts`, `OpportunityTable.vue`, and `OpportunityTableCaption.vue` implement the simulation.
+**In the code:** `src/components/PipelineOverview.vue`, `OpportunityTable.vue`, and `OpportunityTableRow.vue`.
 
-## Frontend architecture
+### 2. One focused workspace instead of many pages
 
-### 4. Vue 3 Composition API and TypeScript
+**What we chose:** Summary, filters, bulk actions, and the opportunity table are all on one page.
 
-- **Decision:** Vue 3 Composition API with `<script setup>` and TypeScript.
-- **Why:** The project is component-oriented; Composition API makes related state/actions explicit and easy to extract. Types constrain stage values, update requests, and API result handling.
-- **Alternatives:** Options API or JavaScript. Options API remains viable but can spread related logic across component options. JavaScript is quicker initially but permits invalid stage strings and weakens refactor safety.
-- **Trade-offs:** TypeScript types do not validate data at runtime; types can become broad or stale. Use runtime schema validation at an external API boundary in production. `src/types/opportunity.ts` and Vue files are representative.
+**Why:** The common task is to find a deal, review it, and take action. Keeping the controls together makes that path easier to follow and avoids repeatedly navigating between a dashboard and a separate list.
 
-### 5. Pinia, with separate stores by responsibility
+**Other options:** Separate dashboard, search, and bulk-management pages could make each page simpler. They would also make a user switch contexts for work that often happens together.
 
-- **Decision:** Pinia stores for opportunity state, row selection, and simulation settings. The opportunity store is a public facade composed from focused record, sync, and bulk action modules.
-- **Why:** State is shared by the overview, toolbar, bulk bar, rows, and simulation panel. Centralizing data and actions prevents separate components from writing inconsistent copies. Selection and simulation have distinct lifecycles and can change without rebuilding business records.
-- **Alternatives:** Component-local state or one giant store. Local state makes cross-component actions and consistent error handling difficult; a monolithic store was harder to read. Extracted modules keep the Pinia facade but reduce file size.
-- **Trade-offs:** More files and module context; several action modules receive a context object. `src/stores/opportunities.ts`, `opportunities/recordActions.ts`, `syncActions.ts`, `bulkActions.ts`, `selection.ts`, `simulation.ts`.
+**Cost and next step:** A single page can feel crowded. The component layout separates the sections, but a production version should test the page at different screen sizes and let users hide less-used panels if needed.
 
-### 6. Service boundary and data types
+**In the code:** `src/App.vue` assembles the page from smaller components.
 
-- **Decision:** UI calls store actions; store actions call `fakeApi`; shared records and request shapes live in `src/types/opportunity.ts`.
-- **Why:** Components should express user intent, not network rules. A service boundary isolates simulated delay, failure, and version checks from rendering.
-- **Alternatives:** API calls in each row component or a full repository/client abstraction. Component calls duplicate error and reconciliation logic. A larger abstraction is unnecessary while there is one fake service.
-- **Trade-offs:** `fakeApi` is a module singleton, so tests and stores share its state unless reset. Production should inject a real HTTP client and validate response data.
+### 3. Summary cards and stage percentages
 
-## Performance decisions
+**What we chose:** Show total opportunities and value, won and lost counts, inactive deals, plus a count and percentage for each stage.
 
-### 7. TanStack Vue Virtual, not rendering all records
+**Why:** A manager can quickly see the shape of the pipeline before opening individual deals. For example, a large number of opportunities at **Proposal Sent** may tell the team where follow-up is needed.
 
-- **Decision:** `useVirtualizer` renders the current viewport plus `overscan: 8`; estimated row size is 56 px.
-- **Reason:** 50,000 mounted rows would create huge DOM/layout/paint work. Virtualization mounts only a small window while keeping a scroll-sized surface.
-- **Alternatives:** Render all rows, pagination, or TanStack Table. Full rendering is excessive. Pagination reduces DOM but interrupts scanning and selection. TanStack Table is a headless table toolkit, not a replacement for row virtualization; current custom table needs only sorting/filtering logic already present.
-- **Trade-offs:** Off-screen rows are not mounted, so selection must be ID-based and focus/scroll must be managed. Row-height estimates and measurement need care. No benchmark is recorded. `OpportunityTable.vue`.
+**Other options:** A chart dashboard could show more measures, but the assignment’s primary task is updating records. A chart would take extra space and would not replace the table.
 
-### 8. Bulk batches of 500, sequentially
+**Cost and next step:** These totals are calculated from the records in the browser, so they are not official company reporting. A production system should calculate them from the company’s saved data and agree on the rules with sales leadership.
 
-- **Decision:** The client sends one fake API call for each sequential batch of up to 500 IDs. The fake API returns per-record outcomes. Bulk array updates are installed once per response.
-- **Why:** Avoid an unbounded burst of 10,000 requests, keep progress/cancel boundaries, and preserve independent outcomes.
-- **Alternatives:** One enormous request, 500 parallel requests, or individual sequential requests. One giant request can exceed payload limits; many concurrent requests can overwhelm a real service; one per-record serial request is slow. The batch API models a more realistic production endpoint, though the current fake request has no server-side transaction.
-- **Trade-offs:** Each batch waits for configured latency, so 10,000 records means 20 delayed batches and 50,000 means 100. This is not a concurrency pool. File: `src/stores/opportunities/bulkActions.ts`.
+**In the code:** `src/components/PipelineOverview.vue` calculates and displays the summary and stage strip.
 
-## Reliability decisions
+### 4. Search, filters, and sorting
 
-### 9. Optimistic stage updates with reconciliation
+**What we chose:** Search company and product names; filter by stage, owner, value range, and 30-day inactivity; sort by customer, value, last activity, or update date.
 
-- **Decision:** Show the chosen stage immediately, mark saving, then install the authoritative server response. On failure, restore the latest readable server record; mark conflict separately from ordinary error.
-- **Why:** A 300–1500 ms simulated wait should not make a simple stage movement feel blocked.
-- **Alternatives:** Pessimistically wait before changing the row. Safer/simple but slower-feeling. Blind rollback to the old local value is also unsafe if a teammate changed the record in the meantime.
-- **Trade-offs:** Optimistic UI needs careful version checks, local revision tracking, and clear pending/error states. Retry and concurrency behavior are complex. `recordActions.changeStage` and `retry`.
+**Why:** A representative can answer practical questions such as “show me Aisha’s inactive deals” or “which orders have the highest value?” without scrolling through all 50,000 opportunities.
 
-### 10. Local revisions/queues plus server versions
+**Other options:** Searching only on the server would be better for a much larger, remote dataset. It needs a backend and query design that this assignment does not have.
 
-- **Decision:** Serialize same-record writes in one browser with a promise queue; increment a local revision and ignore stale responses; send `expectedVersion` to the API. The fake server rejects stale versions and returns its authoritative record.
-- **Why:** Local queue avoids requests racing for the same row; revision guards protect newer local intent; server versions prevent two clients from silently overwriting one another.
-- **Alternatives:** Last-write-wins or locks. Last-write-wins loses edits; distributed locks add availability, expiry, and ownership complexity for a simple field update. Version checks are lightweight optimistic concurrency control.
-- **Trade-offs:** A conflict requires review/retry and the version applies to the whole record, even when different fields might be edited independently. It is only simulated in one JavaScript process. `recordActions.ts`, `fakeApi.ts`.
+**Cost and next step:** Search checks the loaded records as the user types; there is no pause before a search starts, so each keystroke can check the list again. A production version should move search and filters to a backend and should explain confusing ranges such as a minimum value higher than the maximum.
 
-### 11. Partial bulk success and retry failed IDs
+**In the code:** `src/components/OpportunityFilterToolbar.vue` collects the choices; `src/utils/opportunityFilters.ts` applies them.
 
-- **Decision:** Each row result is independent; successes remain saved; failed/conflicting IDs retain status and can be retried without resubmitting successful IDs.
-- **Why:** All-or-nothing semantics can be impractical for a large CRM action when some rows have stale versions or transient errors.
-- **Alternatives:** Abort/rollback whole bulk transaction or silently skip failures. A real database transaction can provide atomicity, but 10,000-record UI operations may not fit one transaction; silent skipping damages trust.
-- **Trade-offs:** The UI must explain partial outcomes and make retry/undo semantics precise. Current tests cover related retry paths but do not directly prove a mixed success/failure response within one batch.
+### 5. Arrows and dropdown instead of drag-and-drop
 
-### 12. Cancellation and best-effort undo
+**What we chose:** Each row has a previous-stage arrow, a next-stage arrow, and a dropdown for direct stage selection. The stage strip can also filter the table to a stage.
 
-- **Decision:** Cancellation is observed between dispatched 500-row batches; the in-flight batch completes, then untouched optimistic rows reconcile from fake server state. Undo is a compensating version-checked write for successful rows.
-- **Why:** Aborting a request after a server may already have committed creates an unknown outcome. Finishing the current batch and reconciling makes outcomes clearer.
-- **Alternatives:** AbortController or rollback all local state immediately. Browser cancellation cannot guarantee server rollback; immediate rollback can lie about committed writes.
-- **Trade-offs / gap:** Cancel is not instantaneous and the UI must communicate reconciliation. Undo can partially fail; current `undoBulk` clears its snapshot even after failed results, so failed undo rows are not offered another undo retry. It is not atomic. `bulkActions.ts`.
+**Why:** Moving a deal from **New Lead** to **Contacted** is a frequent action, so one arrow click is quicker than opening a dropdown. The dropdown still handles a direct choice such as **Lost**. Buttons and a dropdown also work better with a keyboard and a dense table than dragging a row between columns.
 
-### 13. Separate client cache and authoritative fake server
+**Other options:** Drag-and-drop can feel natural on a Kanban board, but is difficult to use in a virtual table and is not convenient for every keyboard or touch user. A dropdown alone is accessible but takes more actions for every adjacent move.
 
-- **Decision:** Fake API owns a `Map` of cloned records; Pinia owns a distinct local cache. Teammate writes only the fake server until manual sync.
-- **Why:** Without separate state, simulated concurrency and stale-client conflicts cannot exist. Cloning prevents callers from mutating server objects by reference.
-- **Alternatives:** Use Pinia as both client and server. Simpler, but cannot faithfully demonstrate remote changes or version conflicts.
-- **Trade-offs:** Both full copies and snapshots cost memory; reset/reload behavior is demo-only and not durable. A production server must be authoritative across processes and clients.
+**Cost and next step:** The extra controls take room and need clear labels. The app also treats Lost as an outcome, not as the next step after Won. A real product should confirm the stage path with the sales team.
 
-## Production changes we would prioritize
+**In the code:** `src/utils/stageNavigation.ts` defines arrow movement; `src/components/OpportunityTableRow.vue` renders the controls.
 
-1. Replace whole-dataset fetches with authenticated server-side query/cursor pagination, field-level search, and aggregate metrics.
-2. Add runtime response validation, authorization, durable storage, idempotency keys, request tracing, rate limits, and structured logs.
-3. Decide conflict UX for same and different fields; use server versions/ETags and show a review/merge interface.
-4. Make undo retryable and report every restored/skipped/failed record; persist operation outcomes server-side for large jobs.
-5. Add performance and accessibility audits, fix owner-scoped stage labels, and align sample owner count with 20-rep requirement.
-6. Add deterministic mixed partial-failure, sync, retry, keyboard, and undo-failure tests.
+### 6. Keep the owner visible and searchable
+
+**What we chose:** Show the owner in every row and provide a searchable owner filter. When an owner is selected, show a switch for that person’s summary numbers.
+
+**Why:** The person responsible for the next follow-up is important context. A manager can also quickly inspect one representative’s workload without losing the shared pipeline view.
+
+**Other options:** Owner details could live only on a separate deal page. That would hide useful information when comparing rows. A plain long dropdown is harder to use as the team grows.
+
+**Cost and next step:** The current data has seven generated owners, although the assignment describes a 20-person team. A production application should use real team membership and permissions rather than a hard-coded list.
+
+**In the code:** `src/components/OpportunityTableRow.vue`, `OpportunityFilterToolbar.vue`, and `PipelineOverview.vue`; sample names are in `src/services/opportunityGenerator.ts`.
+
+### 7. Show when the table is behind teammate changes
+
+**What we chose:** Teammate changes are marked as waiting. The user presses **Sync updates** to load them. The active row stays identified, and **Go to active row** can return to it.
+
+**Why:** If every remote change immediately reordered the table, a representative could lose the deal they were reviewing. An explicit sync lets the user choose when to refresh.
+
+**Other options:** Polling or live updates with WebSockets can keep real users current. This app has no shared backend or second user, so those systems cannot be tested here.
+
+**Cost and next step:** Sync fetches a new copy of all 50,000 records, which is simple but expensive. A real app should fetch only changed records and show who changed them and when.
+
+**In the code:** `src/stores/opportunities/syncActions.ts` and the table caption in `src/components/OpportunityTableCaption.vue`.
+
+### 8. Put failure controls in a simulation panel
+
+**What we chose:** A panel below the table controls offline mode, request delay, random save failures, and a same-deal teammate edit.
+
+**Why:** It lets a reviewer reproduce a failed save or conflict instead of hoping one happens by chance. Keeping it below the main work area leaves the day-to-day table as the focus.
+
+**Other options:** A separate demo page would make the controls more prominent but disconnect the scenario from the deal being edited. Random failures alone are hard to demonstrate reliably.
+
+**Cost and next step:** These settings exist for the assignment and are not normal CRM controls. A real product would not let a user set the service failure rate.
+
+**In the code:** `src/components/SimulationPanel.vue` and `src/stores/simulation.ts`.
+
+## How the code is organized
+
+### 9. Vue 3, TypeScript, and Pinia
+
+**What we chose:** Vue 3 builds the interface from components, using its Composition API and `<script setup>` style. TypeScript describes opportunities and stages. Pinia is the shared place for data used by the table, filters, metrics, and bulk controls.
+
+**Why:** Composition API lets related screen data and functions live together. A stage such as **Negotiation** should be one of the known values, not a spelling that changes between components. Shared records also need one owner so that a table row and the summary do not keep separate, conflicting copies.
+
+**Other options:** Vue’s Options API is also a good choice, but groups code by option type rather than by feature. Plain JavaScript is quicker to start but cannot catch as many mismatched field names or stage values. Component-only state is fine for a small widget but becomes awkward when several parts of the page need the same records.
+
+**Cost and next step:** TypeScript checks code before it runs; it does not validate data received from a real server. Production API responses should also be checked at runtime.
+
+**In the code:** `src/types/opportunity.ts`, `src/App.vue`, and the Pinia stores in `src/stores/`.
+
+### 10. Split shared state by its job
+
+**What we chose:** Opportunity records, selected IDs, and simulation settings live in separate Pinia stores. Individual record saves, synchronization, and bulk actions are also split into smaller action files behind the opportunity store.
+
+**Why:** A selected checkbox is temporary screen state; it is not part of the customer deal. Simulation settings are also different from sales data. Separating them makes each part easier to follow and test.
+
+**Other options:** One large store could hold everything, but it had become hard to read. Keeping everything inside each component would duplicate save and selection rules.
+
+**Cost and next step:** There are more files and a developer must follow the action from the screen into the store module. The opportunity store acts as the shared entry point to keep that path consistent.
+
+**In the code:** `src/stores/opportunities.ts`, `src/stores/selection.ts`, `src/stores/simulation.ts`, and `src/stores/opportunities/`.
+
+### 11. Keep simulated network behavior out of the screen components
+
+**What we chose:** Components send the user’s intent to a store action; the store calls `fakeApi` for reads and writes.
+
+**Why:** The row component should say “move this deal to Contacted.” It should not need to know how to wait, simulate an error, check versions, or recover the server record.
+
+**Other options:** Put the API calls directly in each row. That would duplicate save rules and make errors harder to handle consistently. A large production networking framework would be unnecessary for one fake service.
+
+**Cost and next step:** `fakeApi` is a shared singleton, which is convenient for this prototype but can make tests share state unless it is reset. A real app should inject a client connected to a backend.
+
+**In the code:** `src/services/fakeApi.ts` and the action files under `src/stores/opportunities/`.
+
+## How the app handles 50,000 records
+
+### 12. Render only the rows around the user
+
+**What we chose:** Use TanStack Vue Virtual to render the rows near the current scroll position, plus a small buffer above and below.
+
+**Why:** Building every cell, button, checkbox, and dropdown for 50,000 rows would burden the browser even though almost all rows are off screen.
+
+**Other options:** Showing all rows would be wasteful. Pagination would reduce the visible rows too, but it interrupts continuous scrolling and makes “select all matching” more complicated. TanStack Table helps build table behavior, but it does not replace the row virtualizer used here.
+
+**Cost and next step:** The virtual table assumes rows are about 56 pixels high. Its `overscan: 8` setting keeps a small buffer of nearby rows ready as the user scrolls. Rows outside that window are removed from the page, so focus has to be restored when needed. Virtual scrolling reduces page elements, not the number of records in memory. No performance benchmark has been run.
+
+**In the code:** `src/components/OpportunityTable.vue` uses `@tanstack/vue-virtual` with stable opportunity IDs and `overscan: 8`.
+
+The stable ID also helps Vue recognize the same opportunity after sorting moves it to a new position. It does not mistake a different deal for the old row just because both occupied the same screen position.
+
+### 13. Use record IDs for selection
+
+**What we chose:** Store selected opportunity IDs in JavaScript `Set`s, collections that keep each ID only once. “Select all matching” remembers the IDs that matched when the user clicked and tracks any rows they later uncheck.
+
+**Why:** Virtualized rows disappear from the page when the user scrolls away. If selection belonged to the row element, it would disappear too. IDs let a user select a deal and keep it selected even when its row is not currently mounted.
+
+**Other options:** Store references to visible row components or store only the current page’s checkbox states. Those approaches cannot safely represent all filtered results.
+
+**Cost and next step:** Selecting all 50,000 records still stores many IDs. For a much larger remote dataset, the server could remember a query or selection token instead.
+
+**In the code:** `src/stores/selection.ts` and `src/components/BulkActionBar.vue`.
+
+### 14. Change bulk records in batches of 500
+
+**What we chose:** Send up to 500 selected records in one request, wait for the result, then send the next group. The app applies each response to the table together.
+
+**Why:** One request per opportunity would mean many waits. Sending 10,000 records in one request could make the request too large. Groups of 500 give the app manageable checkpoints for progress, failure reporting, and cancellation.
+
+**Other options:** Sending every record at once risks oversized requests. Sending each record as a separate request at the same time can overload a service. Sending them one at a time is simple, but very slow with network delay.
+
+**Cost and next step:** Groups run one after another, so a 10,000-record update takes 20 simulated request delays. This is a simple batch loop, not a pool of parallel workers. A production system would likely create a server-side bulk job and report its progress.
+
+**In the code:** `src/stores/opportunities/bulkActions.ts` and `src/services/fakeApi.ts`.
+
+### 15. Keep filtering simple and predictable
+
+**What we chose:** Filtering and sorting are computed from the current in-memory records. Sorting makes a copy instead of rearranging the source records.
+
+**Why:** The dataset is local to the demo, so the browser can apply the user’s filters directly. Keeping the original list order unchanged helps selection and review position stay understandable.
+
+**Other options:** Re-fetch from the server after each filter. There is no real server to query in this project. More complex indexing could speed up some searches but would add state that must be kept in sync.
+
+**Cost and next step:** Every search/filter change may examine up to 50,000 records. There is no typing pause, so a search can run for every character entered. A production version should query smaller pages from a backend.
+
+**In the code:** `src/stores/opportunities.ts` and `src/utils/opportunityFilters.ts`.
+
+For a single save, the store replaces that opportunity in the local list instead of downloading all 50,000 records again. It still looks through the array to find the row’s position. For a bulk response, it collects the changed rows and replaces the list in one pass. That avoids notifying the screen separately for every row, though the pass still checks the full local list once per batch.
+
+## How the app tries to keep saves safe
+
+### 16. Show the change while the save is in progress
+
+**What we chose:** Update the row immediately, show **saving**, then replace the optimistic value with the server result.
+
+**Why:** If a save takes a second, the representative still gets immediate feedback instead of wondering whether the click worked.
+
+**Other options:** Wait for the server before changing the row. That is simpler, but feels slower. Blindly restore the old value after every error can also be wrong if a teammate changed the deal in the meantime.
+
+**Cost and next step:** The app must clearly distinguish a pending save from a saved one and recover carefully after errors. That is why each row has saved, saving, error, and conflict states.
+
+**In the code:** `changeStage` in `src/stores/opportunities/recordActions.ts`.
+
+### 17. Check versions to catch a teammate’s newer save
+
+**What we chose:** Every record has a version. A save says which version it was based on. The fake server accepts it only if that version is still current.
+
+**Example:** Aisha and another representative both open an opportunity at version 1. Aisha saves **Contacted**, so the server changes it to version 2. The other representative then tries to save **Lost** using version 1. The server rejects that stale request and returns version 2, rather than silently replacing Aisha’s update.
+
+**Other options:** “Last write wins” would accept whichever request arrives last and could erase an earlier change. A lock would prevent someone else editing, but locks need ownership and expiry rules. Version checks allow normal editing and catch a conflict at save time.
+
+**Cost and next step:** The user has to review and retry. This app checks the version for the whole record, even if two people changed different fields. A production backend must check the version as part of the same database save; this demo only simulates it in one process.
+
+**In the code:** `expectedVersion` in `src/types/opportunity.ts`, `updateOpportunity` in `src/services/fakeApi.ts`, and `changeStage` in `src/stores/opportunities/recordActions.ts`.
+
+### 18. Keep client data separate from server data
+
+**What we chose:** Pinia has the copy currently shown in the browser. `fakeApi` keeps a separate server copy.
+
+**Why:** To simulate a teammate, the server copy must be able to change while the browser still shows its older copy. That older copy is what lets the app demonstrate a version conflict.
+
+**Other options:** Use Pinia as both screen and server data. That would be simpler, but a simulated teammate would immediately change the screen and there would be no stale save to catch.
+
+**Cost and next step:** Two copies use memory and are not durable. A real backend would keep the official records and share them across users.
+
+**In the code:** `src/services/fakeApi.ts` owns the server `Map`; `src/stores/opportunities.ts` owns local records.
+
+### 19. Keep successful bulk rows when another row fails
+
+**What we chose:** Each record in a bulk request has its own result. Successful rows remain saved; the failed IDs are kept for retry.
+
+**Why:** If 499 of 500 updates succeed, asking the user to repeat all 500 is unnecessary and could cause confusion.
+
+**Other options:** Roll back every record if any one fails. That would require the server to save the entire group as one all-or-nothing database operation, which the fake API does not provide. Silently ignore failures would make the result hard to trust.
+
+**Cost and next step:** The user must understand that “bulk update complete” can mean partial success. The app shows a persistent failure panel. Undo is also best effort and skips records with newer versions.
+
+**In the code:** `bulkUpdateOpportunities` in `src/services/fakeApi.ts` and `bulkChangeStage` in `src/stores/opportunities/bulkActions.ts`.
+
+### 20. Make Cancel stop future batches
+
+**What we chose:** Let a request already sent finish, then stop before sending another batch. Reconcile records that were never sent from server data.
+
+**Why:** Once a request reaches a server, the browser cannot know that canceling locally has undone a save. Pretending to roll it back could show the wrong stage.
+
+**Other options:** Immediately reset every row or abort the request. A local reset cannot reverse a server save, and aborting a network request does not guarantee the server stopped processing it.
+
+**Cost and next step:** Cancel is not instant; it takes effect at a batch boundary. In an earlier version, browser work after each response handled many rows one at a time and made the screen unresponsive. The current code installs results in groups and yields while reconciling untouched rows so the browser can repaint and accept input.
+
+**In the code:** `cancelBulk` and `bulkChangeStage` in `src/stores/opportunities/bulkActions.ts`.
+
+### 21. Keep teammate changes manual in this prototype
+
+**What we chose:** A simulated teammate edit waits on the fake server until the user clicks **Sync updates**.
+
+**Why:** The user gets control over when the table reorders. The app can still show that updates are waiting and keep track of the active row.
+
+**Other options:** Automatically reload or use live events. Those would be appropriate with a shared production backend, but are outside this local prototype.
+
+**Cost and next step:** Sync loads the full dataset, and the simulator does not work across browsers. A real service should send only changed records and support real user identities.
+
+**In the code:** `simulateTeammate` and `syncLatest` in `src/stores/opportunities/syncActions.ts`.
+
+## What I would improve before calling this production-ready
+
+- Add the missing sales representatives and improve the variety of generated customer companies.
+- Move records, filtering, and summary calculations to an authenticated backend with paging.
+- Make conflict review clearer, including a way to cancel the old intent instead of retrying it.
+- Make failed undo results visible and retryable.
+- Add browser-level checks for keyboard use, conflict flows, and mixed bulk outcomes.
+- Measure actual browser behavior before making speed claims.

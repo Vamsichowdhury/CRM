@@ -1,69 +1,158 @@
-# Performance and reliability
+# Performance and Reliable Saves, Explained Simply
 
-This document describes measured facts only where measurements exist. The repository has tests for dataset size and large bulk scenarios, but no browser performance benchmark or profiling report. Do not quote an unmeasured speedup in an interview.
+The app is designed to demonstrate what it takes to work with 50,000 opportunities and unreliable saves. It has not been benchmarked in a browser, so this document explains what the code does without claiming a measured speed improvement. The **fake API** is local code that acts like a server for this demo: the screen asks it to load or save records, and it can add delays or reject saves.
 
-## Performance model
+## 1. Keeping a 50,000-row table usable
 
-### Rendering
+### The browser does not build every row
 
-Rendering 50,000 table rows would create tens of thousands of row elements plus cells, selects, buttons, text, and event/accessibility nodes. The browser must allocate nodes and repeatedly calculate style, layout, paint, and interaction hit targets. `src/components/OpportunityTable.vue` uses TanStack Vue Virtual with `estimateSize: 56` and `overscan: 8`; it mounts virtual rows around the viewport instead of all 50,000. The exact number depends on viewport height and row estimate; it is approximately viewport rows plus eight extra rows, not a fixed total. Stable opportunity IDs are the virtualizer keys.
+If a page tried to show 50,000 rows at once, it would need to create a huge number of HTML elements: rows, text, buttons, checkboxes, dropdowns, and status labels. The browser would then have to lay out and paint all of them, even though the user can see only a small part of the list.
 
-The virtualizer addresses **DOM/rendering cost**, not every cost. Filter and sort still run in JavaScript on the full loaded array. The generated dataset and client cache also remain in memory. No measured before/after benchmark exists.
+`src/components/OpportunityTable.vue` uses **virtual scrolling**. In plain terms, it builds the rows around the current scroll position and a small buffer of nearby rows. As the user scrolls, it replaces those rows with the next ones. The table estimates a row at 56 pixels high and uses `overscan: 8`, which keeps nearby rows ready as the user scrolls. Each opportunity’s stable ID helps the screen recognize the same deal if its position changes.
 
-### JavaScript computation
+This reduces the number of row elements on screen. It does **not** mean the app has loaded only a few records: all 50,000 are still in memory.
 
-`visibleRecords` filters then sorts in a computed property. For N=50,000, a filter/search is O(N); sorting k matches is O(k log k). The filter and sort utility avoids mutating the original data. Metrics such as total value and attention count scan the records; stage counts scan once. Vue computed values cache results until their reactive dependencies change, but a data/filter change can trigger these passes. Search updates immediately; there is no debounce. Owner-stage metrics in `PipelineOverview.vue` build counts from records.
+### What still takes work
 
-### Memory
+Different kinds of performance have different costs:
 
-Memory includes generated authoritative FakeApi records, client record copies, response snapshots/clones, arrays from filtering/sorting, maps and reactive save state, and ID sets. `selectAllMatching` snapshots IDs, potentially 50,000 strings. Sync fetches and clones a full snapshot and rebuilds client maps. `records` is a `shallowRef` to avoid deeply proxying every nested record; individual records are flat. This reduces reactive proxy work but does not make data storage free.
+| Kind of work | What this app does | What can still be slow |
+| --- | --- | --- |
+| Drawing the table | Shows only nearby rows | Each visible row still has controls and styling. |
+| Searching and filtering | Checks the in-memory records in the browser | A search can check all 50,000 records every time the text changes. There is no pause before searching, so typing another character starts another check. |
+| Sorting | Sorts a copy of the matching records | A large matching set still takes time to order. |
+| Summaries | Counts stages and adds deal values from loaded records | A data change may require another pass over records. |
+| Network behavior | Simulates delay and failures | There is no real bandwidth, backend load, or server latency measurement. |
+| Memory | Uses a shallow record list and ID sets | Both the client and fake server keep data; full syncs and “select all matching” need extra memory too. |
 
-### Network/request simulation
+The store keeps the large record list in a shallow Vue reference. In plain terms, Vue watches when the list changes without adding its tracking layer to every field of all 50,000 records. Filtering and sorting results are reused until their inputs change. Sorting works on a copy so it does not rearrange the original record list.
 
-Individual writes wait 300–1500 ms by default. Bulk writes send sequential 500-record batches, each with one simulated delay. A 500-record request is one fake API call, not 500 parallel HTTP requests. For 1,000 rows there are two delayed batches; for 10,000, 20; for 50,000, 100. This trades total duration for bounded request/payload size and observable cancellation checkpoints. `getOpportunity()` is immediate and bypasses offline/delay simulation, which differs from a real network.
+### Why not use pages?
 
-### Performance dimensions are different
+Pages would also reduce the number of visible rows. However, moving between pages interrupts continuous review and makes it harder to select records across the entire filtered result. Virtual scrolling keeps one long list while showing only a small part of it.
 
-| Dimension | Current approach | What still costs |
-|---|---|---|
-| Rendering | Virtual row window, stable keys, shallow records | Row measurement, component work for mounted rows, layout for table |
-| JavaScript | Computed filter/sort, Maps/Sets, bulk array installation in batches | O(N) filtering/metrics, O(k log k) sorting, some O(N) array passes |
-| Network | Fake latency/failures and batch API shape | No real bandwidth/server load; full snapshot sync; serial batch delay |
-| Memory | One client array plus maps and ID sets; no 50k DOM rows | Server/client data copies, clones, filtered/sorted arrays, selection snapshots |
+For a production system, a backend would likely send one page of results at a time, then provide a way to ask for the next page. Virtual scrolling limits what the browser draws; it does not remove the need to fetch and hold the data.
 
-## How to measure reproducibly
+### Selection while scrolling
 
-No performance result is claimed until measured. For a useful local comparison:
+The table stores selected opportunity IDs in `src/stores/selection.ts`, not references to visible row elements. The IDs are kept in a `Set`, a collection that does not add the same ID twice. So if a user checks a deal, scrolls away, and its row disappears from the page, that deal stays selected.
 
-1. Use a production build and the same machine/browser/viewport; record browser and hardware.
-2. Load 50,000 records with fixed seed, wait for settled rendering, record Chrome Performance and Memory traces.
-3. Measure initial scripting/rendering, typing into search, clearing filters, changing sort, changing one stage, syncing a full snapshot, selecting all matches, and a 10,000-row bulk update.
-4. Record mounted `<tr>` count, long tasks, scripting/layout time, heap before/after selection and sync, and operation duration. Repeat several times and report median plus range.
-5. Compare identical interactions with virtualization disabled only in a temporary experiment; do not ship that change as part of this task.
-6. Keep network simulation settings fixed. For real production data, measure server query latency and payload size separately from browser work.
+The header checkbox selects rows currently rendered by the virtual table. **Select all matching** is the separate control for the full filtered result. It remembers the matching IDs at the moment the user clicks it, so later scrolling does not change the selection.
 
-## Network reliability lifecycle
+This is practical for 50,000 sample records, but a set containing tens of millions of IDs would consume too much browser memory. A production service could represent the selection as a saved filter or server-side token.
 
-`SaveState` distinguishes saved, saving, error, and conflict. Individual stage updates are optimistic: the displayed stage changes immediately; a successful API response replaces it with authoritative data. Ordinary failure attempts to read current server data and restore it; version conflict installs the authoritative record included in `ApiError`, and asks for review/retry. Per-ID `revisions` ensure an old local response does not replace a newer local intent. `queues` serialize same-record local writes.
+## 2. Bulk updates and why they use batches
 
-Bulk operations similarly show optimistic states and progress. Each record has an independent outcome. Successful records stay saved; failures retain an error and retry intent. Retry sends failed IDs only. Sync is explicit and fetches a full snapshot; teammate changes do not automatically reorder the visible table.
+The app sends at most 500 opportunities in one bulk request, waits for that request to finish, then sends the next group. Each response is applied to the local table in a group rather than updating each row separately.
 
-Offline mode causes simulated requests that use `simulate()` to wait and fail. Retry is user-driven; there is no automatic exponential backoff, offline queue, background service worker, or connectivity listener. Notably, `getOpportunity()` bypasses offline simulation, so some reconciliation/retry reads succeed while the UI is “offline”; this is a deliberate simplification/behavioral inconsistency to disclose.
+For example:
 
-## Version-based concurrency
+- 500 selected records use one request.
+- 1,000 use two requests.
+- 10,000 use 20 requests.
 
-Suppose the authoritative record is **New Lead, version 1**.
+This keeps each request a reasonable size and gives the interface places to update progress, report failures, and check whether the user has canceled.
 
-1. User A submits **Contacted** with `expectedVersion: 1`. The server matches version 1, saves Contacted, and increments to version 2.
-2. User B's stale page submits **Lost** with `expectedVersion: 1`. The server sees current version 2, rejects the write, and returns the current record as a conflict.
-3. User B can sync/review the newer record and intentionally retry. The stale write does not silently erase User A's stage.
+### Why not send everything at once?
 
-This is optimistic concurrency control: writers proceed without taking a lock and the server rejects a write based on an old version. The fake API checks whole-record versions. There is no cross-browser server or shared database here, so two real tabs/devices do not actually share this singleton. Production would enforce the version atomically in a database/API (for example conditional update/ETag), return HTTP 409/412, and broadcast changes through a real collaboration channel if required.
+Sending 10,000 or 50,000 records in one enormous request could exceed a service’s request-size limit or take too long to process. Sending thousands of requests at the same time could overload the browser or server. Sending one record per request, one after another, would add the network delay to every record.
 
-## Bulk behavior and examples
+The current implementation uses sequential groups of 500. That means it is not a pool of parallel workers. With a simulated 300–1500 ms delay per group, 10,000 records pass through 20 delayed requests.
 
-The bulk action snapshots target IDs and old stage/version, optimistically updates local rows, then loops through batches of 500 serially. It does not issue hundreds of concurrent requests. Concurrency limiting avoids a thundering herd and too many open requests. Fully sequential one-record requests would avoid bursts but pay one 300–1500 ms delay for every record. One unbounded giant request risks payload/time limits. A batch endpoint is a middle ground.
+### Why the screen froze in an earlier version
 
-At 500 records, one request returns up to 500 independent results. At 1,000 records there are two requests, and a 500-row progress jump occurs per response. A record conflict or random failure does not undo neighbors in the same batch. Failed IDs are retained and retried alone. Cancel stops dispatching subsequent batches, lets the active batch settle, and reconciles undispatched rows in chunks. It cannot guarantee that a server-side operation was aborted because no request cancellation or transaction is simulated.
+The earlier version already grouped the network work. The responsiveness problem was in what the browser did with the results: it updated or restored records one at a time. Repeating local lookup and reactive notification thousands of times kept the browser busy, so the screen could not repaint or respond promptly when the user clicked Cancel.
 
-Potential production improvements: asynchronous bulk job with operation ID, server-side idempotency, fine-grained progress polling/SSE, durable per-record outcomes, explicit retry/backoff, cancellation endpoint semantics, and server-side selection/query tokens for “all matching.”
+The current version applies a successful response as a group. When Cancel is pressed, it also restores records that were never sent in groups of up to 500 and yields to the browser between groups. That gives the browser a chance to draw the screen and receive input. This is a design improvement, not a measured benchmark result.
+
+The implementation is in `src/stores/opportunities/bulkActions.ts`; `src/services/fakeApi.ts` simulates one delay for each request and returns individual results for the records in that request.
+
+## 3. What happens when a save fails
+
+### Updating one deal
+
+Suppose a representative changes an opportunity from **New Lead** to **Contacted**.
+
+1. The table shows **Contacted** immediately and marks the row as saving. This is called an **optimistic update**: show the expected result first, then check whether it saved.
+2. If the fake API accepts the change, it returns the saved record and a newer version number. The row becomes saved.
+3. If the save fails, the app tries to read the latest server record and puts that back in the table. The row shows **Save failed**, and Retry is available.
+4. If someone else saved a newer version, the row shows **Update conflict** and displays the latest record the server returned.
+
+The user sees the difference between a save still in progress, an ordinary error, and a conflict. The app does not leave a failed optimistic value looking like it was saved.
+
+### Avoiding an older response replacing a newer action
+
+If a user changes one deal several times quickly, requests could finish in a different order from the clicks. The store uses a local revision number for each deal and queues saves to that same deal. A response from an older local action is not allowed to replace the result of a newer action.
+
+This protects the browser’s display from stale responses. It is separate from the server version check, which protects one user from overwriting a teammate.
+
+### Retrying
+
+Retry is a user action, not an automatic loop. It reads the latest server record first. If the requested stage is already there, the row is marked saved. Otherwise the app tries the original stage request using the current version.
+
+The app does not currently use exponential retry delays, an offline queue, or a request idempotency key. An idempotency key is a unique request label a production server can use to recognize a repeated submission as the same operation.
+
+### Offline-mode limitation
+
+The simulation panel can turn the fake API offline. Calls that use the simulated request path wait and then fail. However, `fakeApi.getOpportunity()` is a local read that skips both the delay and offline check. Some recovery reads can therefore succeed while the interface says Offline. A real API would have to handle those reads as network requests too.
+
+## 4. How version checks protect a teammate’s edit
+
+Each opportunity has a version number. When the app sends a save, it includes the version it last saw. The fake server accepts the save only if that version still matches.
+
+For example:
+
+1. Aisha and another representative both see **New Lead, version 1**.
+2. Aisha saves **Contacted** using version 1. The server accepts it and makes the record **Contacted, version 2**.
+3. The other representative tries to save **Lost** using version 1.
+4. The server sees that version 1 is old. It rejects the save and returns version 2, so Aisha’s edit is not silently overwritten.
+
+This is called **optimistic concurrency control**. In simple terms, users can work without locking each other out, and the server checks for a newer change when someone saves.
+
+The user sees **Update conflict**, can sync the latest data, review the row, and press Retry if the original requested stage is still what they want. Retry replays that saved stage request. There is no merge screen for combining two different edits.
+
+The demo’s fake server exists in one JavaScript process. It cannot coordinate actual separate users or devices. In production, the backend would check and save the version together in the database, then return a clear conflict response when the version is old.
+
+## 5. Bulk failures, retry, cancel, and undo
+
+Every record in a batch can succeed or fail independently. If 498 succeed and two fail, the 498 stay saved. The failure panel keeps the two failed IDs and retries only those records.
+
+If the user presses Cancel during a request:
+
+1. The request already sent is allowed to finish.
+2. The app does not send the next group.
+3. It reads the latest server data for records that were never sent and restores those rows in groups.
+
+This means Cancel is “stop future work,” not “undo the request already in progress.” A production bulk API could provide a job ID and define a server-side cancellation point, but even then it must report records already committed.
+
+Undo is also best effort. The app remembers the old stage and the version created by the bulk save. It only restores a record if that version is still current. This avoids overwriting a teammate’s newer change.
+
+There is a known limitation: if undo itself has failures, the current app reports the result but clears its saved undo information, so the user cannot retry only the failed undo records. The undo does not succeed or fail as one all-or-nothing action.
+
+## 6. Teammate updates and manual sync
+
+The simulation changes the fake server’s copy of the active opportunity and leaves the visible client copy alone. A pending update indicator appears. The user presses **Sync updates** when ready; this fetches a fresh copy of all 50,000 records.
+
+This avoids surprise reordering while the user works, but it is a simplified demo. It does not keep a history of who changed what, and it does not send live updates between browsers. A production service should return only changes since the user’s last sync and identify the teammate and update time.
+
+## 7. What to measure before making a speed claim
+
+No browser benchmark is included, so do not claim a specific speedup. To measure the current app fairly:
+
+1. Use the same computer, browser, viewport, and production build for every run.
+2. Load the fixed 50,000-record dataset and wait until it settles.
+3. Measure typing in search, changing filters, sorting, scrolling, syncing, selecting all, and updating 10,000 records.
+4. Record how many row elements are mounted, how long the browser spends scripting/layout/painting, and how memory changes after selection and sync.
+5. Repeat each action several times and report the median and range.
+
+Keep these separate: virtualization affects how much the browser draws; local search affects JavaScript work; network latency affects how long saves wait; and holding server/client copies affects memory.
+
+## Main files
+
+- Virtual rows and keyboard movement: `src/components/OpportunityTable.vue`
+- Record state and local updates: `src/stores/opportunities.ts`
+- Single save and retry: `src/stores/opportunities/recordActions.ts`
+- Bulk work and cancellation: `src/stores/opportunities/bulkActions.ts`
+- Fake server, delay, failures, and version check: `src/services/fakeApi.ts`
+- Filtering and sorting: `src/utils/opportunityFilters.ts`
+- ID-based selection: `src/stores/selection.ts`
