@@ -22,6 +22,7 @@ const store = useOpportunityStore();
 const selection = useSelectionStore();
 const selectedStage = ref<DealStage | "">("");
 const selectedCount = computed(() => selection.selectionCount);
+const allMatchingMode = computed(() => selection.allMatchingIds !== null);
 const progressPercent = computed(() =>
   store.bulkProgress.total
     ? Math.round(
@@ -61,11 +62,20 @@ watch(
     <div class="bulk-actions">
       <button
         class="button subtle-button"
+        :class="{ 'all-matching-selected': allMatchingMode }"
+        :title="
+          allMatchingMode
+            ? 'Matching selection is active. Use Deselect all to clear it.'
+            : undefined
+        "
         :disabled="!store.visibleRecords.length || busy"
         @click="emit('selectAll')"
       >
-        Select all {{ store.visibleRecords.length.toLocaleString("en-IN") }}
-        matching
+        <template v-if="allMatchingMode">✓ Matching selection active</template>
+        <template v-else>
+          Select all {{ store.visibleRecords.length.toLocaleString("en-IN") }}
+          matching
+        </template>
       </button>
       <label class="filter-select bulk-stage">
         <select v-model="selectedStage" aria-label="Choose bulk stage">
