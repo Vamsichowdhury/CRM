@@ -171,7 +171,7 @@ function selectAllMatching() {
 function onTeammateUpdated(companyName: string) {
   // Tell the user that the visible table intentionally remains stale until they sync.
   notify(
-    `A teammate edited ${companyName}. Try changing this deal before syncing to test conflict protection.`,
+    `A teammate updated ${companyName}. Edit this deal before syncing to see how conflict protection works.A teammate edited ${companyName}.`,
     "info",
   );
 }
