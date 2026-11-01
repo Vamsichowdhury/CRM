@@ -1,8 +1,8 @@
 # FurniCraft Sales Pipeline
 
-A HighLevel sales pipeline workspace for **FurniCraft**, a fictional B2B office furniture supplier. The app helps a sales team search, review, and update 50,000 sample opportunities.
+A sales pipeline workspace for **FurniCraft**, a fictional B2B office furniture supplier. The app helps a sales team search, review, and update 50,000 sample opportunities.
 
-It is a frontend assignment prototype. Records and network behavior are simulated in memory; there is no production backend or multi-device collaboration.
+It is a frontend prototype. Records and network behavior are simulated in memory; there is no production backend or multi-device collaboration.
 
 ## Run locally
 
