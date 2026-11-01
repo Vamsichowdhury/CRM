@@ -117,7 +117,7 @@ describe("pipeline workspace", () => {
       await wrapper.get(".cancel-bulk").trigger("click");
       expect(wrapper.get(".cancel-bulk").text()).toContain("Canceling…");
       expect(wrapper.get(".progress-caption").text()).toContain(
-        "restoring pending opportunities",
+        "later updates will be skipped",
       );
 
       await new Promise((resolve) => setTimeout(resolve, 70));

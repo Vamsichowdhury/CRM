@@ -112,15 +112,15 @@ A save can succeed, fail, or conflict with a change made by someone else. The ap
 
 ## Saving one opportunity
 
-When a user changes a stage, the application updates the screen immediately and shows that the save is in progress. This is called an **optimistic update**. It makes the application feel faster because the user does not have to wait before seeing the result.
+When a user changes a stage, the row keeps showing its last saved stage and shows that the save is in progress. The stage changes after the service confirms the save. This avoids showing a change that might fail.
 
 For example:
 
 1. An opportunity is at **New Lead**.
 2. The user changes it to **Contacted**.
-3. The table shows **Contacted** immediately and marks the row as saving.
-4. If the server accepts the change, the row becomes saved.
-5. If the server rejects the change, the application tries to restore the latest available server data and shows an error or conflict state.
+3. The row keeps showing **New Lead** and is marked as saving.
+4. If the server accepts the change, the table shows **Contacted** and marks the row as saved.
+5. If the server rejects the change, the row stays at its last saved stage, shows an error or conflict state, and offers Retry.
 
 A user can click **Retry** to try the intended change again.
 
@@ -354,18 +354,18 @@ This section gives a short guide to the main project files. It is included for a
 ### When a user changes one stage
 
 1. The row sends the requested stage change to the opportunity store.
-2. The screen shows the new stage immediately and marks it as saving.
+2. The row keeps showing its current saved stage and is marked as saving.
 3. The store sends the change to the simulated server with the version it last read.
 4. The server accepts the change or returns an error/conflict.
-5. The store updates the row with the result and shows the appropriate status.
+5. If accepted, the store updates the row to the new stage. If not, the current saved stage stays visible and the row shows the appropriate error or conflict status.
 
 ### When a user changes many stages
 
 1. The application collects the selected opportunity IDs and remembers their previous stages and versions.
-2. It shows the new stages as pending and sends groups of up to 500 records.
-3. Each record receives its own success or failure result.
-4. The application keeps successful changes and offers retry for failed records.
-5. If cancelled, it finishes the current group and does not send later groups.
+2. It keeps the current stages visible, marks the selected rows as saving, and sends groups of up to 500 records.
+3. Each record receives its own success or failure result, and the application updates the rows as each group returns.
+4. Successful changes stay saved, while failed rows keep the latest available stage and offer retry.
+5. If cancelled, the current group finishes and later groups are not sent; their rows keep their existing stages.
 
 ### When a teammate changes an opportunity
 

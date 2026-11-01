@@ -35,7 +35,7 @@ export interface Opportunity {
   lastActivityAt: string;
   createdAt: string;
   updatedAt: string;
-  // Incremented by the server for optimistic concurrency control.
+  // Incremented by the server so stale saves can be rejected.
   version: number;
 }
 

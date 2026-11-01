@@ -90,7 +90,7 @@ watch(
       <span>
         {{
           store.bulkProgress.cancelling
-            ? "Finishing this batch and restoring pending opportunities"
+            ? "Finishing this batch; later updates will be skipped"
             : "Updating opportunities"
         }}
       </span>

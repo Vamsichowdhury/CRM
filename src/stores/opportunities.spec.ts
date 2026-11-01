@@ -40,11 +40,11 @@ describe("opportunity store updates", () => {
     await nextTick();
   });
 
-  it("shows an optimistic saving state before the API resolves", async () => {
+  it("keeps the saved stage visible until the API confirms the change", async () => {
     const store = useOpportunityStore();
     await store.initialize();
     const request = store.changeStage(fixture.id, "Demo Done");
-    expect(store.records[0].stage).toBe("Demo Done");
+    expect(store.records[0].stage).toBe("Contacted");
     expect(store.saveStates.get(fixture.id)).toBe("saving");
     await request;
     expect(store.records[0]).toMatchObject({ stage: "Demo Done", version: 2 });
@@ -154,7 +154,7 @@ describe("opportunity store updates", () => {
     expect(store.records[0]).toMatchObject({ stage: "Lost", version: 3 });
   });
 
-  it("shows cancellation immediately and restores undispatched rows in a large selection", async () => {
+  it("shows cancellation immediately and leaves undispatched rows unchanged", async () => {
     // More than 500 records proves work stops between, rather than inside, API batches.
     const records = Array.from({ length: 10_000 }, (_, index) => ({
       ...fixture,
@@ -169,6 +169,7 @@ describe("opportunity store updates", () => {
     const operation = store.bulkChangeStage("Won");
     expect(store.bulkProgress.running).toBe(true);
     expect(store.bulkProgress.total).toBe(10_000);
+    expect(store.records[0].stage).toBe("Contacted");
     store.cancelBulk();
     expect(store.bulkProgress.cancelling).toBe(true);
     await operation;

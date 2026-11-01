@@ -68,16 +68,12 @@ export function createBulkActions(context: BulkActionContext) {
       };
     }
 
-    // Mark local state first, then replace the array once to keep large updates responsive.
-    const optimisticById = new Map<string, Opportunity>();
+    // Leave displayed stages unchanged until each server batch returns.
     for (const record of originalRecords) {
       retryStages.set(record.id, stage);
-      const optimistic = { ...record, stage };
-      optimisticById.set(record.id, optimistic);
-      recordById.set(record.id, optimistic);
       saveStates.value.set(record.id, "saving");
+      errors.value.delete(record.id);
     }
-    if (optimisticById.size) installMany([...optimisticById.values()]);
 
     const failed = new Set<string>();
     const successful = new Set<string>();
@@ -184,18 +180,8 @@ export function createBulkActions(context: BulkActionContext) {
           offset < undispatched.length;
           offset += chunkSize
         ) {
-          const reconcileChunk = undispatched.slice(offset, offset + chunkSize);
-          const latestRecords = await Promise.all(
-            reconcileChunk.map(async (record) => {
-              try {
-                return await fakeApi.getOpportunity(record.id);
-              } catch {
-                return recordById.get(record.id) ?? record;
-              }
-            }),
-          );
-          installMany(latestRecords);
-          for (const record of reconcileChunk) {
+          const pendingChunk = undispatched.slice(offset, offset + chunkSize);
+          for (const record of pendingChunk) {
             saveStates.value.set(record.id, "saved");
             errors.value.delete(record.id);
             retryStages.delete(record.id);

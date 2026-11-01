@@ -194,15 +194,15 @@ For a single save, the store replaces that opportunity in the local list instead
 
 ## How the app tries to keep saves safe
 
-### 16. Show the change while the save is in progress
+### 16. Change the stage only after the save succeeds
 
-**What we chose:** Update the row immediately, show **saving**, then replace the optimistic value with the server result.
+**What we chose:** Keep the last saved stage visible while a save is pending. Show **saving** on the row, then change the stage when the service confirms it.
 
-**Why:** If a save takes a second, the representative still gets immediate feedback instead of wondering whether the click worked.
+**Why:** The person reviewing the pipeline always sees a stage that was actually saved. The saving label confirms their action was received, without showing a change that might fail.
 
-**Other options:** Wait for the server before changing the row. That is simpler, but feels slower. Blindly restore the old value after every error can also be wrong if a teammate changed the deal in the meantime.
+**Other options:** Changing the row before the service replies can feel faster, but it needs a rollback if the save fails and can briefly show a stage the server never accepted. This app favors showing the last confirmed value.
 
-**Cost and next step:** The app must clearly distinguish a pending save from a saved one and recover carefully after errors. That is why each row has saved, saving, error, and conflict states.
+**Cost and next step:** The user waits to see the stage change for the 300–1500 ms request delay. During that time the stage controls are disabled for the row, while the saving state makes it clear that work is underway. If the save fails, the old stage stays visible and the row offers Retry.
 
 **In the code:** `changeStage` in `src/stores/opportunities/recordActions.ts`.
 

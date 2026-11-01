@@ -8,7 +8,7 @@ interface RecordActionContext extends OpportunityCache {
   install: (record: Opportunity) => void;
 }
 
-/** Single-row persistence: optimistic stage edits, per-record ordering, and retry. */
+/** Single-row persistence: confirmed stage edits, per-record ordering, and retry. */
 export function createRecordActions(context: RecordActionContext) {
   const {
     recordById,
@@ -21,7 +21,7 @@ export function createRecordActions(context: RecordActionContext) {
     install,
   } = context;
 
-  /** Optimistically applies a stage, then reconciles the authoritative response. */
+  /** Saves a stage first, then updates the displayed record from the response. */
   async function changeStage(id: string, stage: DealStage) {
     const current = recordById.get(id);
     if (
@@ -34,7 +34,6 @@ export function createRecordActions(context: RecordActionContext) {
     const revision = (revisions.get(id) ?? 0) + 1;
     revisions.set(id, revision);
     const base = current;
-    install({ ...current, stage });
     saveStates.value.set(id, "saving");
     errors.value.delete(id);
 

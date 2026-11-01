@@ -62,7 +62,7 @@ These searches and filters work in the browser on the loaded dataset. They do no
 
 Each table row shows the customer, furniture product and units, estimated rupee value, owner, stage, activity dates, and save status. The arrows move to the previous or next stage in the main path. The dropdown can choose any stage, including Lost.
 
-When the user changes a stage, the row updates straight away while the save is in progress. This is called an **optimistic update**: the app assumes the save will work so the screen feels responsive, then checks the result. If it succeeds, the row stays updated. If it fails, the app restores the latest record it can read and shows an error or conflict state.
+When the user changes a stage, the row keeps showing its current saved stage while the request is in progress. The row’s status says **saving**, and the stage changes only after the service confirms the save. If the save fails, the app shows the latest record it can read and marks the row with an error or conflict.
 
 The default table order is by most recently updated. A saved row may move because of that sort. The app briefly highlights the moved row and focuses the next opportunity from the order the user was reviewing before the save.
 

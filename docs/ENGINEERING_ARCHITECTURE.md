@@ -84,10 +84,10 @@ Imagine a representative clicks the arrow to move Indigo Networks from **New Lea
 
 1. `OpportunityTableRow.vue` emits the requested stage change.
 2. `applyStageChange()` in `src/components/OpportunityTable.vue` remembers which deal was next in the review order.
-3. The store calls `changeStage()` in `recordActions.ts`. It changes the displayed row immediately and marks it as saving. This quick screen change is called an **optimistic update**.
+3. The store calls `changeStage()` in `recordActions.ts`. It leaves the displayed stage unchanged and marks the row as saving while it waits for the service.
 4. The action calls `fakeApi.updateOpportunity()` with the record ID, the requested stage, and the version it expects to be current.
-5. If the fake API accepts the save, it increases the version and returns the saved record. The row becomes saved, briefly highlights green, and focus moves to the next deal in the old review order.
-6. If the save fails, the action restores the latest record it can read and marks the row as failed. The row offers Retry and the app shows an error toast.
+5. If the fake API accepts the save, it increases the version and returns the saved record. The table changes the stage only now. The row becomes saved, briefly highlights green, and focus moves to the next deal in the old review order.
+6. If the save fails, the stage remains at the last confirmed value. The action reads the latest record it can and marks the row as failed. The row offers Retry and the app shows an error toast.
 7. If the version is old, the fake API returns the newer record and the row is marked as a conflict instead of silently replacing someone else’s change.
 
 `retry()` in `recordActions.ts` reads the latest server record. If the requested stage has not already been saved, it sends that original stage request again. The prototype does not include a merge screen for comparing different field edits.
@@ -105,7 +105,7 @@ Suppose a manager selects 1,000 opportunities and moves them to **Contacted**.
 
 ### How the changes come back into the table
 
-Before the first request finishes, the selected rows show the chosen stage and a **saving** status. This gives immediate feedback, but it does not mean every record has already been saved by the fake server.
+Before the first request finishes, the selected rows keep their current saved stages and show a **saving** status. The stage changes only as successful results come back from the fake server.
 
 Each group of up to 500 sends three things for every opportunity: its ID, the version currently known to the browser, and the requested stage. For a 1,000-deal update, the app sends the first 500, waits for their results, applies those results to the table, and then sends the next 500.
 

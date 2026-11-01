@@ -6,8 +6,8 @@ import type {
 import { generateOpportunities } from "./opportunityGenerator";
 
 /**
- * API-shaped error. Conflicts include the authoritative record so callers can
- * replace optimistic data without issuing another request.
+ * API-shaped error. Conflicts include the latest record so callers can show
+ * the current server value without issuing another request.
  */
 export class ApiError extends Error {
   constructor(

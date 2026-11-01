@@ -115,7 +115,10 @@ function onStageSelect(event: Event) {
         <button
           class="stage-step"
           type="button"
-          :disabled="!adjacentStage(opportunity.stage, 'previous')"
+          :disabled="
+            saveState === 'saving' ||
+            !adjacentStage(opportunity.stage, 'previous')
+          "
           :aria-label="stageArrowLabel('previous')"
           :title="stageArrowLabel('previous')"
           @click="moveStage('previous')"
@@ -127,6 +130,7 @@ function onStageSelect(event: Event) {
           :class="`stage-${DEAL_STAGES.indexOf(opportunity.stage)}`"
           :aria-label="`Stage for ${opportunity.companyName}`"
           :value="opportunity.stage"
+          :disabled="saveState === 'saving'"
           @change="onStageSelect"
         >
           <option v-for="stage in DEAL_STAGES" :key="stage">{{ stage }}</option>
@@ -134,7 +138,9 @@ function onStageSelect(event: Event) {
         <button
           class="stage-step"
           type="button"
-          :disabled="!adjacentStage(opportunity.stage, 'next')"
+          :disabled="
+            saveState === 'saving' || !adjacentStage(opportunity.stage, 'next')
+          "
           :aria-label="stageArrowLabel('next')"
           :title="stageArrowLabel('next')"
           @click="moveStage('next')"

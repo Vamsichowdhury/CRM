@@ -112,6 +112,7 @@ function announceShortcut(event: KeyboardEvent, opportunity: Opportunity) {
     (target === event.currentTarget || focusedStageArrow)
   ) {
     event.preventDefault();
+    if (store.saveStates.get(opportunity.id) === "saving") return;
     const stage = adjacentStage(
       opportunity.stage,
       event.key === "ArrowLeft" ? "previous" : "next",

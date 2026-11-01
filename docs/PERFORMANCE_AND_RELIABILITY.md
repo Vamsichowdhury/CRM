@@ -55,10 +55,10 @@ This keeps each request a reasonable size and gives the interface places to upda
 
 Here is the full round trip for 1,000 deals:
 
-1. The browser immediately shows the chosen stage on all selected rows and marks them as saving.
+1. The browser leaves the current stage on all selected rows and marks them as saving.
 2. It sends the first 500 IDs, the version it has for each deal, and the new stage to `fakeApi.bulkUpdateOpportunities()`.
 3. The fake API checks each deal. It saves the ones that are still on the expected version and returns their updated records. Those records include a higher version number and a new update time. Failed or conflicting deals come back with an error and, when available, the latest server record.
-4. The browser matches each result by ID and calls `installMany()`. That replaces the matching records in the local list in one pass, so the table and summary counts update.
+4. The browser matches each result by ID and calls `installMany()`. That replaces the matching records in the local list in one pass, so only confirmed changes appear in the table and summary counts.
 5. After handling the first response, it sends the remaining 500 as the second request and repeats the process.
 
 That is why “two requests” does not mean the app replaces the entire dataset twice. It updates the local rows returned for each group. The actual implementation is an in-memory fake API, not an HTTP call to a real database.
@@ -83,12 +83,12 @@ The implementation is in `src/stores/opportunities/bulkActions.ts`; `src/service
 
 Suppose a representative changes an opportunity from **New Lead** to **Contacted**.
 
-1. The table shows **Contacted** immediately and marks the row as saving. This is called an **optimistic update**: show the expected result first, then check whether it saved.
-2. If the fake API accepts the change, it returns the saved record and a newer version number. The row becomes saved.
-3. If the save fails, the app tries to read the latest server record and puts that back in the table. The row shows **Save failed**, and Retry is available.
+1. The row keeps showing **New Lead** and changes its status to saving. The stage controls are disabled while that request is in progress.
+2. If the fake API accepts the change, it returns the saved record and a newer version number. Only then does the table show **Contacted** and mark the row saved.
+3. If the save fails, the stage stays at **New Lead** (or the latest saved stage). The app tries to read the latest server record, marks the row **Save failed**, and offers Retry.
 4. If someone else saved a newer version, the row shows **Update conflict** and displays the latest record the server returned.
 
-The user sees the difference between a save still in progress, an ordinary error, and a conflict. The app does not leave a failed optimistic value looking like it was saved.
+The user sees the difference between a save still in progress, an ordinary error, and a conflict. A stage is shown as changed only after the service confirms it.
 
 ### Avoiding an older response replacing a newer action
 
@@ -117,7 +117,7 @@ For example:
 3. The other representative tries to save **Lost** using version 1.
 4. The server sees that version 1 is old. It rejects the save and returns version 2, so Aisha’s edit is not silently overwritten.
 
-This is called **optimistic concurrency control**. In simple terms, users can work without locking each other out, and the server checks for a newer change when someone saves.
+This is a **version-based concurrency check**. In simple terms, users can work without locking each other out, and the server checks for a newer change when someone saves.
 
 The user sees **Update conflict**, can sync the latest data, review the row, and press Retry if the original requested stage is still what they want. Retry replays that saved stage request. There is no merge screen for combining two different edits.
 

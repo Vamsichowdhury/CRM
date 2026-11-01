@@ -54,8 +54,8 @@ export function createSyncActions(context: SyncActionContext) {
   }
 
   /**
-   * Installs a server snapshot on explicit user action. In-flight optimistic
-   * saves remain visible until their own responses settle.
+   * Installs server data on explicit user action. In-flight saves keep their
+   * current displayed stage until their own responses settle.
    */
   async function syncLatest() {
     if (syncing.value) return;
