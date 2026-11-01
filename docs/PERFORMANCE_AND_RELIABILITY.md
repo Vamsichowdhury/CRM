@@ -53,6 +53,16 @@ For example:
 
 This keeps each request a reasonable size and gives the interface places to update progress, report failures, and check whether the user has canceled.
 
+Here is the full round trip for 1,000 deals:
+
+1. The browser immediately shows the chosen stage on all selected rows and marks them as saving.
+2. It sends the first 500 IDs, the version it has for each deal, and the new stage to `fakeApi.bulkUpdateOpportunities()`.
+3. The fake API checks each deal. It saves the ones that are still on the expected version and returns their updated records. Those records include a higher version number and a new update time. Failed or conflicting deals come back with an error and, when available, the latest server record.
+4. The browser matches each result by ID and calls `installMany()`. That replaces the matching records in the local list in one pass, so the table and summary counts update.
+5. After handling the first response, it sends the remaining 500 as the second request and repeats the process.
+
+That is why “two requests” does not mean the app replaces the entire dataset twice. It updates the local rows returned for each group. The actual implementation is an in-memory fake API, not an HTTP call to a real database.
+
 ### Why not send everything at once?
 
 Sending 10,000 or 50,000 records in one enormous request could exceed a service’s request-size limit or take too long to process. Sending thousands of requests at the same time could overload the browser or server. Sending one record per request, one after another, would add the network delay to every record.

@@ -103,6 +103,18 @@ Suppose a manager selects 1,000 opportunities and moves them to **Contacted**.
 5. Each record gets its own success or failure result. A successful update stays saved even if another record in the same request fails.
 6. The failure panel can retry only failed IDs. The app also offers a version-checked undo for successful records.
 
+### How the changes come back into the table
+
+Before the first request finishes, the selected rows show the chosen stage and a **saving** status. This gives immediate feedback, but it does not mean every record has already been saved by the fake server.
+
+Each group of up to 500 sends three things for every opportunity: its ID, the version currently known to the browser, and the requested stage. For a 1,000-deal update, the app sends the first 500, waits for their results, applies those results to the table, and then sends the next 500.
+
+The fake API checks each opportunity separately. If a save succeeds, it changes its own record and returns that updated record, including the new version and update time. If a save fails or has an older version, it returns an error and, when available, the latest server record. So one response can contain a mix of saved records and failures.
+
+`bulkChangeStage()` in `src/stores/opportunities/bulkActions.ts` matches each result back to its opportunity ID. It updates that row’s version and save status, then calls `installMany()` in `src/stores/opportunities.ts`. `installMany()` replaces the returned records in the browser’s list in one pass, so the table and totals refresh together. Then the app moves on to the next group.
+
+If the whole request fails, for example because the app is offline, there is no normal list of results. The store reads the latest server data it can and marks the affected records as failed. The fake API is only an in-memory simulation; no HTTP request or real database is involved.
+
 The app does not send 1,000 independent requests at once. The batches limit the size of each request and give cancellation points. The fake API still performs individual version and failure checks for each record in a batch.
 
 If the user presses Cancel, the request already sent is allowed to finish. The app then stops before sending the next batch and reloads records that were never sent. Cancel cannot guarantee that the server has undone a request already received.
