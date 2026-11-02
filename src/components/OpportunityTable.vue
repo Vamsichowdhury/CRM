@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// This component renders only the visible table rows, while selection and save
-// state live in Pinia so they survive virtualization and reordering.
+// This component draws the table and handles table interactions. The actual
+// records and selection live in stores, so scrolling rows away does not lose them.
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useVirtualizer } from "@tanstack/vue-virtual";
 import {
@@ -16,7 +16,7 @@ import { useSelectionStore } from "../stores/selection";
 import { adjacentStage } from "../utils/stageNavigation";
 import { nextReviewOpportunityId } from "../utils/nextReviewOpportunity";
 
-// App.vue owns global bottom-right notifications; the table emits outcomes to it.
+// App.vue owns the toast area, so this table sends it messages instead of drawing another one.
 const emit = defineEmits<{
   stageSaved: [message: string];
   saveError: [message: string];
@@ -26,27 +26,32 @@ const emit = defineEmits<{
 const store = useOpportunityStore();
 const selection = useSelectionStore();
 const scrollElement = ref<HTMLElement | null>(null);
-// A successful row flashes green at its new sorted position; active state is persistent.
+// The saved row gets a short green highlight; the active row keeps its own border.
 const highlightedId = ref<string | null>(null);
 const focusAnnouncement = ref("");
 const updateNotice = ref("");
 const activeRowId = computed(() => store.activeOpportunityId);
 let highlightTimer: number | undefined;
 let noticeTimer: number | undefined;
+// These are the filtered and sorted records the user is currently looking at.
 const rows = computed(() => store.visibleRecords);
-// Fixed row height keeps virtual positioning predictable across a 50k-record dataset.
+// Because only nearby rows are drawn, the table needs an estimated row height
+// to place those rows at the right point in the long list.
 const virtualizer = useVirtualizer(
   computed(() => ({
     count: rows.value.length,
     getScrollElement: () => scrollElement.value,
     estimateSize: () => 56,
+    // A few extra rows above and below the screen make scrolling feel smooth.
     overscan: 8,
+    // An opportunity ID keeps a row's identity when sorting changes its position.
     getItemKey: (index: number) => rows.value[index]?.id ?? index,
   })),
 );
 const virtualRows = computed(() => virtualizer.value.getVirtualItems());
 const totalSize = computed(() => virtualizer.value.getTotalSize());
-// The header checkbox intentionally targets the mounted viewport, not every result.
+// The header checkbox handles rows currently on screen. The toolbar has a
+// separate action for selecting every filtered result.
 const renderedIds = computed(() =>
   virtualRows.value.map((row) => rows.value[row.index].id),
 );
@@ -65,23 +70,23 @@ const activeRowIndex = computed(() =>
     : -1,
 );
 
-/** Applies the header checkbox to only rows currently rendered by the virtualizer. */
+/** Select or clear the rows the user can currently see in the table. */
 function toggleRendered() {
   selection.selectVisible(renderedIds.value, !allRenderedSelected.value);
 }
-/** Restores the user's review position after a sort or a manual teammate sync. */
+/** Bring the active opportunity back into view after the list order changes. */
 function jumpToActiveRow() {
   const id = activeRowId.value;
   if (!id || activeRowIndex.value < 0) return;
   virtualizer.value.scrollToIndex(activeRowIndex.value, { align: "auto" });
-  // Wait for virtual DOM placement before asking the newly mounted row to focus.
+  // Scrolling mounts the row; these frames wait until it can receive focus.
   window.requestAnimationFrame(() =>
     window.requestAnimationFrame(() =>
       document.getElementById(`opportunity-row-${id}`)?.focus(),
     ),
   );
 }
-/** Fetches staged teammate changes only when the user asks, avoiding surprise row jumps. */
+/** Apply teammate changes only after the user presses Sync. */
 async function syncLatest() {
   try {
     const count = store.pendingSyncCount;
@@ -102,7 +107,7 @@ async function syncLatest() {
     );
   }
 }
-/** Handles row-level keyboard navigation without stealing input/select controls. */
+/** Support row shortcuts while leaving text boxes and dropdowns alone. */
 function announceShortcut(event: KeyboardEvent, opportunity: Opportunity) {
   const target = event.target;
   const focusedStageArrow =
@@ -111,6 +116,7 @@ function announceShortcut(event: KeyboardEvent, opportunity: Opportunity) {
     (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
     (target === event.currentTarget || focusedStageArrow)
   ) {
+    // Left/right changes this deal by one stage in the main sales path.
     event.preventDefault();
     if (store.saveStates.get(opportunity.id) === "saving") return;
     const stage = adjacentStage(
@@ -124,6 +130,7 @@ function announceShortcut(event: KeyboardEvent, opportunity: Opportunity) {
     (event.key === "ArrowDown" || event.key === "ArrowUp") &&
     event.target === event.currentTarget
   ) {
+    // Up/down moves through filtered rows, scrolling the next row into view.
     const currentIndex = rows.value.findIndex(
       (row) => row.id === opportunity.id,
     );
@@ -141,24 +148,28 @@ function announceShortcut(event: KeyboardEvent, opportunity: Opportunity) {
     return;
   }
   if (event.key === " " && event.target === event.currentTarget) {
+    // Space selects the focused row without needing to focus its checkbox.
     event.preventDefault();
     selection.toggle(opportunity.id);
   }
 }
 function sort(field: SortField) {
+  // The store reverses the order for this column or starts a new column ascending.
   store.toggleSort(field);
 }
 /**
- * Saves a row then keeps the review workflow moving forward from the order
- * before the save, even if the saved row has moved due to the current sort.
+ * Save the change, highlight the deal, then continue to the next deal in the
+ * order the user was reviewing before the save moved the row.
  */
 async function applyStageChange(opportunity: Opportunity, stage: DealStage) {
   if (opportunity.stage === stage) return;
+  // Remember the old order before a successful save can change the sort order.
   const previousVisibleIds = rows.value.map((row) => row.id);
   const previousIndex = rows.value.findIndex(
     (row) => row.id === opportunity.id,
   );
   await store.changeStage(opportunity.id, stage);
+  // Keep focus here on a failure or conflict so the user can recover this save.
   if (store.saveStates.get(opportunity.id) !== "saved") {
     reportSaveError(opportunity);
     return;
@@ -184,8 +195,8 @@ async function applyStageChange(opportunity: Opportunity, stage: DealStage) {
     }, 2600);
   }
 
-  // Capture the former next row before the sort changes, then fall back to the
-  // nearest visible index when a filter makes that row disappear.
+  // Continue to the next deal from the old order. If a filter removed it,
+  // focus the nearest row that is still visible.
   const nextReviewId = nextReviewOpportunityId(
     previousVisibleIds,
     opportunity.id,
@@ -226,7 +237,7 @@ async function retryOpportunity(opportunity: Opportunity) {
   if (store.saveStates.get(opportunity.id) !== "saved")
     reportSaveError(opportunity);
 }
-// Re-measure after Vue has rendered a filtered/sorted replacement row list.
+// Recalculate row positions after Vue replaces the list following a filter or save.
 watch(rows, () => virtualizer.value.measure(), { flush: "post" });
 onMounted(() => virtualizer.value.measure());
 onUnmounted(() => {

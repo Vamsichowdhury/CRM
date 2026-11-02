@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// The app shell coordinates global filters, notifications, theme preference,
-// and bulk-action controls. Record persistence remains in the opportunity store.
+// This file joins the main screen pieces and handles app-wide behavior such as
+// loading, theme choice, notifications, and starting bulk actions.
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import BulkActionBar from "./components/BulkActionBar.vue";
 import KeyboardHelp from "./components/KeyboardHelp.vue";
@@ -16,12 +16,15 @@ import { useSelectionStore } from "./stores/selection";
 
 const store = useOpportunityStore();
 const selection = useSelectionStore();
+// The filter bar exposes these small helpers so the global keyboard shortcuts
+// can focus or close its search box without the app shell owning the input.
 const filterToolbar = ref<{
   focusSearch: () => void;
   blurSearch: () => void;
   isSearchFocused: () => boolean;
 } | null>(null);
-// Retains the target stage so the persistent failure panel can retry only failed IDs.
+// Remember the chosen stage while failures are visible so Retry failed can
+// repeat the same change for only the records that need another try.
 const failedBulkStage = ref<DealStage | null>(null);
 const bulkBatchTotal = ref(0);
 const loadError = ref("");
@@ -32,13 +35,13 @@ interface ToastNotice {
   action?: string;
   run?: () => void;
 }
-/** Reads a user override; null means follow the operating system preference. */
+/** Use the saved choice when there is one; otherwise let the computer choose. */
 function storedTheme(): Theme | null {
   try {
     const saved = window.localStorage.getItem("highlevel-theme");
     if (saved === "dark" || saved === "light") return saved;
   } catch {
-    // Storage may be unavailable in private or restricted browser contexts.
+    // If the browser blocks saved settings, the app can still work for this visit.
   }
   return null;
 }
@@ -48,11 +51,11 @@ const systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
 const theme = ref<Theme>(
   savedTheme ?? (systemThemeQuery?.matches ? "dark" : "light"),
 );
-// A single global toast supports both transient results and an optional recovery action.
+// One toast area handles success and error messages, and can offer a retry or undo.
 const toast = ref<ToastNotice | null>(null);
 let toastTimer: number | undefined;
 const busy = computed(() => store.bulkProgress.running);
-// Apply immediately so there is no light-theme flash; persist only explicit choices.
+// Apply the theme right away. Save it only after the user has picked a theme.
 watch(
   theme,
   (value) => {
@@ -61,14 +64,14 @@ watch(
       try {
         window.localStorage.setItem("highlevel-theme", value);
       } catch {
-        // The selected theme still applies for this session when storage is blocked.
+        // Keep the chosen look for this visit even if the browser will not save it.
       }
     }
   },
   { immediate: true },
 );
 
-/** Replaces the prior notification and resets its auto-dismiss timer. */
+/** Show the newest message and start its six-second auto-close timer. */
 function notify(
   message: string,
   kind: "success" | "error" | "info" = "info",
@@ -82,13 +85,14 @@ function notify(
   }, 6000);
 }
 function runToastAction() {
+  // Close the message first, then run its action so a retry can show a fresh result.
   const action = toast.value?.run;
   toast.value = null;
   action?.();
 }
 /**
- * Starts a normal selected-ID bulk update or replays just the persistent list
- * of failures. The store owns per-record results and version-safe undo data.
+ * Start a bulk change, or retry only the records that failed last time. The
+ * store keeps the per-record results and decides which changes are safe to undo.
  */
 async function bulkUpdate(
   targetStage: DealStage,
@@ -96,6 +100,7 @@ async function bulkUpdate(
   retryFailedOnly = false,
 ) {
   if (!targetStage || (!retryFailedOnly && !count)) return;
+  // Keep the original total for the failure message even if retries shrink the list.
   if (!retryFailedOnly) bulkBatchTotal.value = count;
   try {
     await store.bulkChangeStage(targetStage, retryFailedOnly);
@@ -137,7 +142,7 @@ async function bulkUpdate(
     );
   }
 }
-/** Retries only IDs that failed the last bulk request, preserving saved records. */
+/** Try the same stage again for failed records without resending successful ones. */
 async function retryFailedBulk() {
   if (!failedBulkStage.value) return;
   await bulkUpdate(
@@ -153,7 +158,7 @@ async function retryFailedBulk() {
     failed ? "error" : "success",
   );
 }
-/** Reports the safe-undo result; changed records are intentionally skipped. */
+/** Tell the user how many records were restored and how many had changed meanwhile. */
 async function undoBulkChanges() {
   const result = await store.undoBulk();
   notify(
@@ -162,6 +167,7 @@ async function undoBulkChanges() {
   );
 }
 function selectAllMatching() {
+  // Save the current filtered IDs as the bulk target, including off-screen rows.
   selection.selectAllMatching(store.filteredIds);
   notify(
     `${store.filteredIds.length.toLocaleString("en-IN")} filtered opportunities selected`,
@@ -169,7 +175,7 @@ function selectAllMatching() {
   );
 }
 function onTeammateUpdated(companyName: string) {
-  // Tell the user that the visible table intentionally remains stale until they sync.
+  // The table stays where it is until the user presses Sync, so explain why.
   notify(
     `A teammate updated ${companyName}. Edit this deal before syncing to see how conflict protection works.A teammate edited ${companyName}.`,
     "info",
@@ -178,7 +184,7 @@ function onTeammateUpdated(companyName: string) {
 function onSimulationError(message: string) {
   notify(message, "error");
 }
-/** Global shortcuts apply only when focus is not already inside a form control. */
+/** Let / and Escape help with the workspace without interrupting typing. */
 function onShortcut(event: KeyboardEvent) {
   if (event.defaultPrevented) return;
   if (
@@ -195,17 +201,17 @@ function onShortcut(event: KeyboardEvent) {
     else selection.clear();
   }
 }
-/** An explicit toggle stops following operating-system theme changes. */
+/** Once the user picks a look, stop changing it when the computer setting changes. */
 function toggleTheme() {
   hasSavedThemePreference.value = true;
   theme.value = theme.value === "dark" ? "light" : "dark";
 }
 function onSystemThemeChange(event: MediaQueryListEvent) {
-  // Follow the system only until the user picks a theme in this workspace.
+  // Follow the computer's setting only until the user chooses a theme here.
   if (!hasSavedThemePreference.value)
     theme.value = event.matches ? "dark" : "light";
 }
-/** Keeps the initial loading error recoverable from the main page. */
+/** Load the pipeline and keep a visible retry option if the request fails. */
 async function loadPipeline() {
   loadError.value = "";
   try {
@@ -217,14 +223,14 @@ async function loadPipeline() {
   }
 }
 onMounted(() => {
-  // Global listeners support keyboard workflows and close the custom owner popover.
+  // Start workspace shortcuts, listen for computer theme changes, and load deals.
   window.addEventListener("keydown", onShortcut);
   if (!hasSavedThemePreference.value)
     systemThemeQuery?.addEventListener("change", onSystemThemeChange);
   void loadPipeline();
 });
 onUnmounted(() => {
-  // Prevent listeners and a pending toast timer from outliving the page shell.
+  // Clean up listeners and timers when leaving the screen.
   window.removeEventListener("keydown", onShortcut);
   systemThemeQuery?.removeEventListener("change", onSystemThemeChange);
   window.clearTimeout(toastTimer);
@@ -233,6 +239,7 @@ onUnmounted(() => {
 
 <template>
   <div class="app-frame" :data-theme="theme">
+    <!-- The header gets the current theme and asks this page to switch it. -->
     <WorkspaceHeader :theme="theme" @toggle-theme="toggleTheme" />
 
     <main class="main-content">
@@ -268,6 +275,7 @@ onUnmounted(() => {
         </button>
       </div>
       <template v-else>
+        <!-- Each child owns its part of the workspace; this file connects them. -->
         <PipelineOverview />
 
         <section class="workspace-card" aria-label="Opportunity management">

@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { filterOpportunities, sortOpportunities } from "./opportunityFilters";
 import type { Opportunity, OpportunityFilters } from "../types/opportunity";
 
-// Injecting a fixed current time makes the 30-day stale cutoff deterministic.
+// Use the same pretend "today" on every machine when checking old activity.
 const now = Date.parse("2026-10-31T00:00:00Z");
-// Shared builder keeps each test focused on only the fields that affect its assertion.
+// Start each example from one deal, then change only the fields being tested.
 const make = (overrides: Partial<Opportunity> = {}): Opportunity => ({
   id: "one",
   companyName: "Acme Corporation",
@@ -29,7 +29,7 @@ const empty: OpportunityFilters = {
 };
 
 describe("opportunity filtering and sorting", () => {
-  // Deliberately different values cover text, numerical, stage, owner, and stale cases.
+  // These two deals differ in the fields we want search and filters to compare.
   const records = [
     make(),
     make({
@@ -43,6 +43,7 @@ describe("opportunity filtering and sorting", () => {
     }),
   ];
   it("searches both company and opportunity names", () => {
+    // The same search box should find either the customer or the product name.
     expect(
       filterOpportunities(records, { ...empty, search: "acme" }),
     ).toHaveLength(1);
@@ -51,6 +52,7 @@ describe("opportunity filtering and sorting", () => {
     ).toBe("two");
   });
   it("combines stage, owner, value range, and stale filters", () => {
+    // Every active filter must match the same deal for it to stay in the results.
     const result = filterOpportunities(
       records,
       {
@@ -71,7 +73,7 @@ describe("opportunity filtering and sorting", () => {
     ).toEqual([]);
   });
   it("sorts numeric and string fields in both directions without mutating input", () => {
-    // The backing cache's order must survive a sorted view so selection remains stable.
+    // The sorted view can change without rearranging the original records.
     expect(
       sortOpportunities(records, "dealValue", "desc").map(
         (record) => record.id,

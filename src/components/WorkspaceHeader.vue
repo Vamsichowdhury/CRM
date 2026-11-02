@@ -1,10 +1,12 @@
 <script setup lang="ts">
+// The page owns the theme; the header only shows it and emits a toggle request.
 defineProps<{ theme: "light" | "dark" }>();
 const emit = defineEmits<{ toggleTheme: [] }>();
 </script>
 
 <template>
   <header class="app-header">
+    <!-- FurniCraft is the customer business; HighLevel is the software platform. -->
     <a class="brand" href="#" aria-label="FurniCraft on HighLevel">
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 32 32" fill="none">

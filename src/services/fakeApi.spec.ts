@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { FakeApi } from "./fakeApi";
 import type { Opportunity } from "../types/opportunity";
 
-// Injected randomness and waiting keep server rules deterministic in unit tests.
+// These fixed values keep the fake API predictable while the tests check its rules.
 const record: Opportunity = {
   id: "deal-1",
   companyName: "Acme",
@@ -16,7 +16,7 @@ const record: Opportunity = {
   updatedAt: "2026-01-01T00:00:00Z",
   version: 1,
 };
-/** Creates an isolated server so one test's version increments cannot leak into another. */
+/** Give each test its own server, with no delay and a predictable random value. */
 const createApi = () =>
   new FakeApi({
     records: [record],
@@ -33,11 +33,13 @@ describe("fake API version checks", () => {
       expectedVersion: 1,
       changes: { stage: "Demo Done" },
     });
+    // The server should save the stage and move the version forward by one.
     expect(updated).toMatchObject({ stage: "Demo Done", version: 2 });
   });
   it("rejects a stale update and returns the authoritative record", async () => {
     const api = createApi();
     api.configure({ minDelayMs: 0, maxDelayMs: 0, failureRate: 0 });
+    // The teammate saves first, so this browser's version 1 is now out of date.
     await api.simulateTeammateUpdate(record.id, { stage: "Won" });
     await expect(
       api.updateOpportunity({
@@ -57,6 +59,7 @@ describe("fake API version checks", () => {
   it("reports offline requests explicitly", async () => {
     const api = createApi();
     api.configure({ minDelayMs: 0, maxDelayMs: 0, offline: true });
+    // No save should go through while the simulation says the connection is offline.
     await expect(
       api.updateOpportunity({
         id: record.id,

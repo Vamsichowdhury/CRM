@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// The table provides these counts and states; this small component only displays them.
 defineProps<{
   resultCount: number;
   visibleStart: number;
@@ -23,6 +24,7 @@ const emit = defineEmits<{ jumpToActiveRow: []; syncLatest: [] }>();
       {{ updateNotice }}
     </span>
     <div class="table-caption-actions">
+      <!-- Return to the row the user was reviewing after sorting or syncing. -->
       <button
         class="table-action-button"
         type="button"
@@ -31,6 +33,7 @@ const emit = defineEmits<{ jumpToActiveRow: []; syncLatest: [] }>();
       >
         Go to active row
       </button>
+      <!-- Teammate changes wait here until the user chooses to bring them in. -->
       <button
         class="table-action-button sync-action"
         type="button"

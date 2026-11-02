@@ -1,4 +1,4 @@
-// Shared flat ESLint configuration for TypeScript source and Vue SFCs.
+// Use one set of code checks for both TypeScript files and Vue components.
 import js from "@eslint/js";
 import globals from "globals";
 import tseslint from "typescript-eslint";
@@ -12,10 +12,12 @@ export default tseslint.config(
   {
     files: ["**/*.{ts,vue}"],
     languageOptions: {
+      // Let the linter recognize browser APIs and Node tools used by the project.
       globals: { ...globals.browser, ...globals.node },
       parserOptions: { parser: tseslint.parser },
     },
     rules: {
+      // Keep the Vue and TypeScript mistakes that matter most to this project out.
       "@typescript-eslint/no-explicit-any": "error",
       "vue/multi-word-component-names": "off",
       "vue/no-mutating-props": "error",

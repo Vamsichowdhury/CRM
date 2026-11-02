@@ -3,18 +3,18 @@ import { ref, watch } from "vue";
 import { fakeApi } from "../services/fakeApi";
 
 /**
- * UI-owned simulation controls. Watching these values keeps the fake API's
- * authoritative server behaviour aligned with what the user sees in the panel.
+ * These are the settings shown in the simulation panel. Whenever one changes,
+ * pass the new setting to the fake API so the control changes real behavior.
  */
 export const useSimulationStore = defineStore("simulation", () => {
   const minDelayMs = ref(300);
   const maxDelayMs = ref(1500);
   const failureRate = ref(0.1);
   const offline = ref(false);
-  // Kept separately so teammate scenarios can be disabled without changing API latency/failures.
+  // This switch controls teammate edits without changing delay or failure settings.
   const teammateUpdates = ref(true);
   const datasetSize = 50_000;
-  // Push settings immediately on startup and after every slider/toggle change.
+  // Set up the fake API now, then update it every time the user moves a control.
   watch(
     [minDelayMs, maxDelayMs, failureRate, offline],
     () =>

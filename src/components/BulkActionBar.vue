@@ -20,9 +20,12 @@ const emit = defineEmits<{
 
 const store = useOpportunityStore();
 const selection = useSelectionStore();
+// Keep the chosen stage here until the user presses Apply.
 const selectedStage = ref<DealStage | "">("");
+// This includes individually checked rows and the saved list from Select all matching.
 const selectedCount = computed(() => selection.selectionCount);
 const allMatchingMode = computed(() => selection.allMatchingIds !== null);
+// Show a percentage only after the store has started an operation with a target.
 const progressPercent = computed(() =>
   store.bulkProgress.total
     ? Math.round(
@@ -32,11 +35,12 @@ const progressPercent = computed(() =>
 );
 
 function applyToSelection() {
+  // Do nothing until the user has both selected deals and chosen their new stage.
   if (selectedStage.value && selectedCount.value)
     emit("apply", selectedStage.value, selectedCount.value);
 }
 
-// A completed or canceled operation should not leave a stale target in the toolbar.
+// Clear the old target after a normal completion, but keep it if the user canceled.
 watch(
   () => store.bulkProgress.running,
   (running, wasRunning) => {
@@ -60,6 +64,7 @@ watch(
       </template>
     </div>
     <div class="bulk-actions">
+      <!-- The check mark confirms that every filtered result is selected. -->
       <button
         class="button subtle-button"
         :class="{ 'all-matching-selected': allMatchingMode }"
@@ -95,6 +100,7 @@ watch(
     </div>
   </div>
 
+  <!-- While requests are running, show how many deals have been handled. -->
   <div v-if="busy" class="progress-wrap" role="status">
     <div class="progress-caption">
       <span>
@@ -126,6 +132,7 @@ watch(
     </div>
   </div>
 
+  <!-- Keep failed rows available for retry or safe undo after the run ends. -->
   <div
     v-if="!busy && store.bulkProgress.failedIds.length"
     class="bulk-failure-summary"

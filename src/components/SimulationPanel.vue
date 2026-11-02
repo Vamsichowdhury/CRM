@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// A local control panel for exercising failure, latency, offline, and same-deal
-// concurrency paths without changing application code.
+// Let a reviewer try slow saves, failures, offline mode, and teammate edits
+// without changing the app's code or data by hand.
 import { computed } from "vue";
 import { useOpportunityStore } from "../stores/opportunities";
 import { useSimulationStore } from "../stores/simulation";
@@ -12,15 +12,14 @@ const emit = defineEmits<{
   teammateUpdated: [companyName: string];
   simulationError: [message: string];
 }>();
-// Store the rate as a 0–1 fraction but expose a familiar percentage slider.
+// The API stores a fraction such as 0.1; the slider shows the easier 10% form.
 const failurePercent = computed({
   get: () => Math.round(simulation.failureRate * 100),
   set: (value: number) => {
     simulation.failureRate = value / 100;
   },
 });
-// The simulator deliberately chooses the active deal so a user can reproduce a
-// version conflict instead of hoping a random record is currently visible.
+// Use the deal the user is looking at so a conflict can be tried on demand.
 const activeOpportunity = computed(
   () =>
     opportunities.records.find(
@@ -28,7 +27,7 @@ const activeOpportunity = computed(
     ) ?? null,
 );
 
-/** Updates only the fake server, leaving the client stale until Sync updates. */
+/** Change the server copy; the table will show it after the user presses Sync. */
 async function simulateActiveDealEdit() {
   if (!activeOpportunity.value || props.disabled) return;
   const companyName = activeOpportunity.value.companyName;
@@ -58,6 +57,7 @@ async function simulateActiveDealEdit() {
       }}</span>
     </summary>
     <div class="simulation-content">
+      <!-- This scenario changes the same deal the user has selected in the table. -->
       <section class="simulation-scenario" aria-labelledby="concurrency-title">
         <div class="scenario-heading">
           <span class="scenario-icon" aria-hidden="true">⇄</span>
@@ -95,6 +95,7 @@ async function simulateActiveDealEdit() {
           deal
         </button>
       </section>
+      <!-- These controls change how the next fake API requests behave. -->
       <label class="toggle-row"
         ><span
           ><strong>Network connection</strong

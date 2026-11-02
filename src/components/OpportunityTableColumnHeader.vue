@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// The table handles sorting and selection; this header tells it what was clicked.
 import type { SortField } from "../types/opportunity";
 
 const props = defineProps<{
@@ -13,6 +14,7 @@ const emit = defineEmits<{
 }>();
 
 function sortLabel(field: SortField, label: string) {
+  // Add an arrow only to the column that currently controls the sort order.
   if (props.sortField !== field) return label;
   return `${label}${props.sortDirection === "asc" ? " ↑" : " ↓"}`;
 }
@@ -20,6 +22,7 @@ function sortLabel(field: SortField, label: string) {
 
 <template>
   <div class="table-header table-row" role="row">
+    <!-- This checkbox affects rows currently drawn in the table viewport. -->
     <div class="cell select-cell" role="columnheader">
       <input
         aria-label="Select rendered rows"

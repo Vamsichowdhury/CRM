@@ -7,6 +7,7 @@ import {
 import type { MutableRef } from "./types";
 
 interface SyncActionContext {
+  // Keep the table's records and the fast ID lookup in step with each other.
   records: MutableRef<Opportunity[]>;
   recordById: Map<string, Opportunity>;
   serverVersions: Map<string, number>;
@@ -36,12 +37,14 @@ export function createSyncActions(context: SyncActionContext) {
     isTeammateUpdatesEnabled,
   } = context;
 
-  /** Loads the shared local cache once. */
+  /** Load the deals into the app once. */
   async function initialize() {
+    // Do not start two first-load requests if the page asks to load twice.
     if (initialized.value || loading.value) return;
     loading.value = true;
     try {
       const loaded = await fakeApi.getOpportunities();
+      // The table reads these records; the maps help other actions find them by ID.
       records.value = loaded;
       for (const record of loaded) {
         recordById.set(record.id, record);
@@ -54,20 +57,24 @@ export function createSyncActions(context: SyncActionContext) {
   }
 
   /**
-   * Installs server data on explicit user action. In-flight saves keep their
-   * current displayed stage until their own responses settle.
+   * Bring teammate changes into the table only after the user presses Sync.
+   * Keep rows with an in-progress save as they are until that save finishes.
    */
   async function syncLatest() {
+    // Ignore repeated clicks while the first sync is still running.
     if (syncing.value) return;
     syncing.value = true;
     const generation = pendingSyncGeneration.value;
     try {
+      // Get the latest server copy, then merge it with any save still in flight.
       const latest = await fakeApi.getOpportunities();
       const localById = new Map(
         records.value.map((record) => [record.id, record]),
       );
       for (const record of latest)
         serverVersions.set(record.id, record.version);
+      // Keep a row's local copy while its own save is running; use server copies
+      // for all other rows so teammate changes appear after this sync.
       const merged = latest.map((record) =>
         saveStates.value.get(record.id) === "saving"
           ? (localById.get(record.id) ?? record)
@@ -76,6 +83,7 @@ export function createSyncActions(context: SyncActionContext) {
       records.value = merged;
       recordById.clear();
       for (const record of merged) recordById.set(record.id, record);
+      // Keep the badge if another teammate change arrived while these deals loaded.
       if (generation === pendingSyncGeneration.value)
         pendingSyncIds.value = new Set();
     } finally {
@@ -83,13 +91,15 @@ export function createSyncActions(context: SyncActionContext) {
     }
   }
 
-  /** Stages a teammate's edit on the server while leaving the local table untouched. */
+  /** Change the fake server's copy while leaving the table alone until Sync. */
   async function simulateTeammate(
     id = activeOpportunityId.value ??
       records.value[Math.floor(Math.random() * records.value.length)]?.id,
   ) {
+    // Prefer the active row so the user can reproduce a conflict on a deal they can see.
     if (!id || !isTeammateUpdatesEnabled()) return;
     const current = await fakeApi.getOpportunity(id);
+    // Pick a different stage so the simulated teammate change is visible.
     const availableStages = DEAL_STAGES.filter(
       (stage) => stage !== current.stage,
     );
@@ -102,6 +112,7 @@ export function createSyncActions(context: SyncActionContext) {
   }
 
   function setActiveOpportunity(id: string | null) {
+    // Remember which deal the user last clicked or focused.
     activeOpportunityId.value = id;
   }
 

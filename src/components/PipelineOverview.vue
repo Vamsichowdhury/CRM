@@ -1,30 +1,38 @@
 <script setup lang="ts">
-// Pipeline metrics derive from the same cache as the table; they never rely on
-// hard-coded counts and therefore refresh after successful batch replacements.
+// The cards and table use the same records, so their numbers stay in step after
+// a save instead of relying on fixed numbers typed into the page.
 import { computed, ref, watch } from "vue";
 import { DEAL_STAGES, type DealStage } from "../types/opportunity";
 import { useOpportunityStore } from "../stores/opportunities";
 
 const store = useOpportunityStore();
-// This toggle is available only after an owner filter makes its meaning clear.
+// This switch matters only after the user chooses an owner in the filter bar.
 const ownerStatsOnly = ref(false);
-// Aggregate directly from the shallow records ref. Returning the same array
-// from an intermediate computed can hide triggerRef updates from downstream metrics.
+// Work out the numbers from the records currently held by the app. This keeps
+// the metric cards and stage counts in sync with the table after a save.
 const stats = computed(() => {
   const counts = Object.fromEntries(
     DEAL_STAGES.map((stage) => [stage, 0]),
   ) as Record<DealStage, number>;
+  // When the switch is on, count only the selected salesperson's deals.
+  // An empty owner means the cards should describe the whole pipeline.
   const owner = ownerStatsOnly.value ? store.filters.owner : "";
+  // A deal with no activity before this date is shown as needing attention.
   const cutoff = Date.now() - 30 * 86_400_000;
   let recordCount = 0;
   let totalValue = 0;
   let attentionCount = 0;
 
   for (const record of store.records) {
+    // Skip other salespeople only when owner-only stats are turned on.
     if (owner && record.owner !== owner) continue;
+    // This deal is part of the summary, so include it in the overall total.
     recordCount += 1;
+    // Add one to the column for this deal's current stage.
     counts[record.stage] += 1;
+    // Add its value so the card shows the total value of the matching deals.
     totalValue += record.dealValue;
+    // Count it when its last activity is older than thirty days.
     if (Date.parse(record.lastActivityAt) < cutoff) attentionCount += 1;
   }
 
@@ -32,14 +40,14 @@ const stats = computed(() => {
 });
 const wonCount = computed(() => stats.value.counts.Won);
 const lostCount = computed(() => stats.value.counts.Lost);
-// Avoid leaving the interface in owner-only mode after the owner filter is cleared.
+// If the user clears the owner filter, return the cards to whole-pipeline numbers.
 watch(
   () => store.filters.owner,
   (owner) => {
     if (!owner) ownerStatsOnly.value = false;
   },
 );
-/** Percentage helpers protect against divide-by-zero while data is loading. */
+/** Show zero until there are records to divide by. */
 const stageShare = (stage: DealStage) =>
   stats.value.recordCount
     ? Math.round((stats.value.counts[stage] / stats.value.recordCount) * 100)
@@ -54,7 +62,7 @@ const currency = (value: number) =>
     currency: "INR",
     maximumFractionDigits: 0,
   }).format(value);
-/** The stage board is also a quick filter; clicking the active stage clears it. */
+/** Clicking a stage filters the table; clicking it again removes that filter. */
 function choose(stage: DealStage) {
   store.setStageFilter(store.filters.stage === stage ? "" : stage);
 }

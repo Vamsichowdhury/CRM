@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// This component only needs to know about one opportunity at a time.
 import { computed } from "vue";
 import {
   DEAL_STAGES,
@@ -25,14 +26,17 @@ const emit = defineEmits<{
 
 const store = useOpportunityStore();
 const selection = useSelectionStore();
+// A row with no request in progress or error is in its normal saved state.
 const saveState = computed(
   () => store.saveStates.get(props.opportunity.id) ?? "saved",
 );
 const errorMessage = computed(() => store.errors.get(props.opportunity.id));
+// Use the same thirty-day rule as the filter and pipeline summary.
 const needsAttention = computed(
   () =>
     Date.parse(props.opportunity.lastActivityAt) < Date.now() - 30 * 86_400_000,
 );
+// Format amounts and dates the way FurniCraft's Indian sales team expects to read them.
 const currencies = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
@@ -44,6 +48,7 @@ const dateFormat = new Intl.DateTimeFormat("en-IN", {
   year: "numeric",
 });
 
+// Describe the destination in words so the arrow controls work with screen readers.
 function stageArrowLabel(direction: "previous" | "next") {
   const target = adjacentStage(props.opportunity.stage, direction);
   return target
@@ -52,11 +57,13 @@ function stageArrowLabel(direction: "previous" | "next") {
 }
 
 function moveStage(direction: "previous" | "next") {
+  // Ask the shared helper for the neighboring stage, then let the table save it.
   const target = adjacentStage(props.opportunity.stage, direction);
   if (target) emit("stageChange", props.opportunity, target);
 }
 
 function onStageSelect(event: Event) {
+  // The dropdown can jump directly to any stage, including Lost.
   emit(
     "stageChange",
     props.opportunity,
@@ -66,6 +73,7 @@ function onStageSelect(event: Event) {
 </script>
 
 <template>
+  <!-- Remember this row when the user clicks it or moves keyboard focus to it. -->
   <div
     :id="`opportunity-row-${opportunity.id}`"
     class="table-row data-row"
@@ -95,6 +103,7 @@ function onStageSelect(event: Event) {
     </div>
     <div class="cell opportunity-cell" role="gridcell">
       <span class="opportunity-name">
+        <!-- The old field name is kept in the data, but shown as furniture units. -->
         {{ opportunity.opportunityName }} · {{ opportunity.licenceCount }} units
       </span>
     </div>
@@ -112,6 +121,7 @@ function onStageSelect(event: Event) {
     </div>
     <div class="cell stage-cell" role="gridcell">
       <div class="stage-control">
+        <!-- Arrows move one step; the dropdown remains available for any stage. -->
         <button
           class="stage-step"
           type="button"
@@ -161,6 +171,7 @@ function onStageSelect(event: Event) {
       {{ dateFormat.format(new Date(opportunity.updatedAt)) }}
     </div>
     <div class="cell status-cell" role="gridcell">
+      <!-- Make saving, failure, and conflict visible beside the deal they affect. -->
       <span
         class="sync-status"
         :class="`sync-${saveState}`"

@@ -1,5 +1,4 @@
-/* Global visual tokens. Feature styles below use shared variables so light and
-   dark themes keep the same visual hierarchy. */
+/* Shared colors, type, and shadows used throughout both themes. */
 :root {
   font-family:
     Inter,
@@ -65,7 +64,7 @@ a {
     ),
     #f5f6f8;
 }
-/* Persistent brand header and workspace identity. */
+/* Keep FurniCraft and its HighLevel workspace visible at the top of the page. */
 .app-header {
   height: 62px;
   background: #fff;
@@ -273,7 +272,7 @@ a {
   background: #e5ecff;
   border-color: var(--blue);
 }
-/* Derived pipeline metrics and stage board. */
+/* Summary cards for pipeline totals and sales outcomes. */
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -392,7 +391,7 @@ a {
   background: #4c68cf;
   color: #fff;
 }
-/* Colorful stage cards make the pipeline easier to scan and filter. */
+/* Stage buttons show the deal mix and also act as quick filters. */
 .stage-strip {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -525,6 +524,7 @@ a {
   background: var(--stage-accent);
   transition: width 0.35s ease;
 }
+/* Make the chosen stage easy to spot while its deals are shown below. */
 .stage-filter.active {
   transform: translateY(-2px);
   border-color: var(--stage-accent);
@@ -544,7 +544,7 @@ a {
   border-radius: 999px;
   background: var(--stage-accent);
 }
-/* Main table workspace: filters, bulk actions, progress, and virtualized rows. */
+/* Search, filters, bulk controls, and the opportunity list live in this card. */
 .workspace-card {
   background: #fff;
   border: 1px solid var(--line);
@@ -759,7 +759,7 @@ a {
 .help-link:hover {
   text-decoration: underline;
 }
-/* Bulk controls remain visually distinct when a non-empty selection is active. */
+/* Give the selection bar a stronger look once one or more deals are checked. */
 .bulk-toolbar {
   height: 49px;
   display: flex;
@@ -907,7 +907,7 @@ a {
 .undo-failed-button:hover:not(:disabled) {
   background: #fff8f6;
 }
-/* Fixed-height virtual table supports 50,000 records without mounting all rows. */
+/* Keep each row the same height so the table can draw only nearby rows. */
 .table-shell {
   width: 100%;
 }
@@ -1052,15 +1052,18 @@ a {
   outline: 2px solid #365de6;
   outline-offset: -2px;
 }
+/* Briefly outline a saved row; the animation fades after the user sees it. */
 .data-row.row-highlighted {
   --update-highlight: #e4f5e9;
   --update-border: #2f9e55;
   animation: opportunity-update-fade 2.6s ease-out forwards;
 }
+/* Keep the row the salesperson is working on visually separate from its neighbors. */
 .data-row.row-active:not(.row-highlighted):not(.row-save-failed) {
   background: #f6f8ff;
   box-shadow: inset 3px 0 #5876df;
 }
+/* Use a stronger red treatment when the row needs the user's attention. */
 .data-row.row-save-failed {
   background: #fff4f5;
   box-shadow:
@@ -1253,6 +1256,7 @@ a {
   border-radius: 50%;
   background: #25a37e;
 }
+/* Different colors make an in-progress save and a failed save easy to tell apart. */
 .sync-saving i {
   background: #e5a238;
   animation: pulse 1s infinite;
@@ -1327,7 +1331,7 @@ a {
   gap: 12px;
   margin-top: 12px;
 }
-/* Collapsible failure/concurrency controls and keyboard help beneath the table. */
+/* Simulation options and keyboard help sit below the main table. */
 .simulation-panel,
 .keyboard-help {
   background: #fff;
@@ -1568,7 +1572,7 @@ a {
   padding: 0 5px;
   color: #c5cad2;
 }
-/* Bottom-right outcomes carry success, informational, error, and retry states. */
+/* Keep save results in one place at the lower-right of the screen. */
 .toast-message {
   position: fixed;
   z-index: 1000;
@@ -1715,7 +1719,7 @@ a {
   opacity: 0;
   transform: translateY(8px);
 }
-/* Keep controls compact on narrower laptop screens. */
+/* Tighten spacing when the workspace is shown on a smaller laptop screen. */
 @media (max-width: 1180px) {
   .main-content {
     padding-left: 24px;
@@ -1759,7 +1763,7 @@ a {
   border-color: #cbd2df;
 }
 
-/* Theme overrides preserve the same semantic colours and contrast in dark mode. */
+/* Dark colors for the same controls, keeping status colors meaningful. */
 .app-frame[data-theme="dark"] {
   color-scheme: dark;
   --ink: #e2e8f0;

@@ -11,6 +11,7 @@ const ownerSearchInput = ref<HTMLInputElement | null>(null);
 const ownerMenuOpen = ref(false);
 const ownerSearch = ref("");
 const searchInput = ref<HTMLInputElement | null>(null);
+// Only show owner names that match what the user has typed in the dropdown.
 const ownerChoices = computed(() => {
   const search = ownerSearch.value.trim().toLocaleLowerCase();
   return ["All owners", ...OWNERS].filter((owner) =>
@@ -19,12 +20,14 @@ const ownerChoices = computed(() => {
 });
 
 defineExpose({
+  // App.vue uses these when the user presses / or Escape anywhere in the page.
   focusSearch: () => searchInput.value?.focus(),
   blurSearch: () => searchInput.value?.blur(),
   isSearchFocused: () => document.activeElement === searchInput.value,
 });
 
 async function toggleOwnerMenu() {
+  // When opening the owner list, start a fresh search and put the cursor in it.
   ownerMenuOpen.value = !ownerMenuOpen.value;
   if (!ownerMenuOpen.value) return;
   ownerSearch.value = "";
@@ -33,6 +36,7 @@ async function toggleOwnerMenu() {
 }
 
 function chooseOwner(owner: string) {
+  // The special option means no owner filter; other choices narrow the list.
   store.filters.owner = owner === "All owners" ? "" : owner;
   ownerMenuOpen.value = false;
   ownerSearch.value = "";
@@ -40,10 +44,12 @@ function chooseOwner(owner: string) {
 }
 
 function closeMenuOutside(event: PointerEvent) {
+  // Clicking elsewhere closes the popover, just like a regular dropdown.
   if (!root.value?.contains(event.target as Node)) ownerMenuOpen.value = false;
 }
 
 function onOwnerSearchKeydown(event: KeyboardEvent) {
+  // Keep the owner list usable from the keyboard as well as the mouse.
   if (event.key === "Escape") {
     event.preventDefault();
     ownerMenuOpen.value = false;
@@ -62,6 +68,7 @@ function onOwnerSearchKeydown(event: KeyboardEvent) {
 }
 
 function onOwnerOptionKeydown(event: KeyboardEvent, owner: string) {
+  // Enter/Space picks an owner; the arrow keys move between choices.
   if (event.key === "Enter" || event.key === " ") {
     event.preventDefault();
     chooseOwner(owner);
@@ -83,6 +90,7 @@ function onOwnerOptionKeydown(event: KeyboardEvent, owner: string) {
   }
 }
 
+// Listen outside this component so a click anywhere else closes the owner list.
 onMounted(() => document.addEventListener("pointerdown", closeMenuOutside));
 onUnmounted(() =>
   document.removeEventListener("pointerdown", closeMenuOutside),
@@ -91,6 +99,7 @@ onUnmounted(() =>
 
 <template>
   <div class="toolbar-top">
+    <!-- v-model writes directly to shared filters, updating the table view. -->
     <div class="search-wrap">
       <span class="search-icon">⌕</span>
       <input
@@ -156,6 +165,7 @@ onUnmounted(() =>
     </div>
     <label class="filter-select stage-filter-select">
       <span class="sr-only">Filter by stage</span>
+      <!-- These controls all update the same shared filter object. -->
       <select v-model="store.filters.stage">
         <option value="">All stages</option>
         <option v-for="stage in DEAL_STAGES" :key="stage">{{ stage }}</option>

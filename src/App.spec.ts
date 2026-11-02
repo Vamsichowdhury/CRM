@@ -7,8 +7,7 @@ import { fakeApi } from "./services/fakeApi";
 import type { Opportunity } from "./types/opportunity";
 import { useSimulationStore } from "./stores/simulation";
 
-// A minimal fixture keeps component tests focused on workspace behaviour rather
-// than the complete generated dataset.
+// Use one small, predictable deal so these screen tests do not need all sample data.
 const fixture: Opportunity = {
   id: "deal-1",
   companyName: "Acme Corporation",
@@ -26,7 +25,7 @@ const fixture: Opportunity = {
 describe("pipeline workspace", () => {
   let pinia: ReturnType<typeof createPinia>;
 
-  // Reset Pinia and the singleton fake server because the test process is shared.
+  // Give every test a fresh store and server so earlier changes cannot leak in.
   beforeEach(async () => {
     pinia = createPinia();
     setActivePinia(pinia);
@@ -40,7 +39,7 @@ describe("pipeline workspace", () => {
   });
 
   it("loads the opportunity into the accessible virtualized workspace", async () => {
-    // TanStack Virtual needs a measurable scrolling container in jsdom.
+    // The test browser has no real screen size, so give the table a pretend viewport.
     const originalRect = Element.prototype.getBoundingClientRect;
     Element.prototype.getBoundingClientRect = () => ({
       width: 1200,
@@ -58,6 +57,7 @@ describe("pipeline workspace", () => {
       await new Promise((resolve) => setTimeout(resolve, 1));
       await flushPromises();
       await nextTick();
+      // Check the loaded screen, then make sure changing the theme is remembered.
       expect(wrapper.get("h1").text()).toBe("Sales Pipeline");
       expect(wrapper.find(".brand").text()).toContain("HighLevel");
       expect(wrapper.text()).toContain("1 results");
@@ -76,7 +76,7 @@ describe("pipeline workspace", () => {
   });
 
   it("shows bulk progress and cancelling feedback while a request is in flight", async () => {
-    // A nonzero delay creates a reliable window for asserting the intermediate UI state.
+    // A short wait gives the test time to inspect the progress and Cancel states.
     const originalRect = Element.prototype.getBoundingClientRect;
     Element.prototype.getBoundingClientRect = () => ({
       width: 1200,
@@ -110,6 +110,7 @@ describe("pipeline workspace", () => {
       await wrapper.get(".bulk-toolbar .primary").trigger("click");
       await nextTick();
 
+      // The user should see that the batch started before it has finished.
       expect(wrapper.get(".bulk-toolbar .primary").text()).toContain(
         "Updating…",
       );

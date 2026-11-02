@@ -2,19 +2,20 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 import { useSelectionStore } from "./selection";
 
-// These cases verify selection independently of the virtual table's mounted DOM rows.
+// Test selection by ID without needing to mount and scroll the virtual table.
 describe("selection across virtual rows", () => {
   beforeEach(() => setActivePinia(createPinia()));
   it("selects rendered IDs and toggles individual rows", () => {
     const selection = useSelectionStore();
     selection.selectVisible(["a", "b"], true);
     selection.toggle("a");
+    // Unchecking one deal should leave the other one selected.
     expect(selection.selectionCount).toBe(1);
     expect(selection.isSelected("b")).toBe(true);
     expect(selection.isSelected("a")).toBe(false);
   });
   it("selects every matching ID, supports exclusions, and preserves the snapshot", () => {
-    // Snapshot mode is what makes Select all matching safe across later scrolling/filtering.
+    // Unchecking one deal should not forget the original set of matching deals.
     const selection = useSelectionStore();
     selection.selectAllMatching(["a", "b", "c"]);
     selection.toggle("b");
@@ -27,6 +28,7 @@ describe("selection across virtual rows", () => {
     const selection = useSelectionStore();
     selection.selectAllMatching(["a"]);
     selection.clear();
+    // Clearing removes checked rows and the saved all-matching list.
     expect(selection.selectionCount).toBe(0);
     expect(selection.selectedIdList()).toEqual([]);
   });
